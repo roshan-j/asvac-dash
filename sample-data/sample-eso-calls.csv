@@ -1,0 +1,11 @@
+Incident Number,Incident Date,Call Type,Crew Members
+2024-001,01/05/2024,ALS - Cardiac,Smith John; Jones Mary; Brown Bob
+2024-002,01/07/2024,BLS - Trauma,Jones Mary; Davis Alice
+2024-003,01/12/2024,ALS - Respiratory,Smith John; Wilson Tom; Davis Alice; Lee Sam
+2024-004,01/15/2024,BLS - Medical,Brown Bob; Lee Sam
+2024-005,01/20/2024,ALS - Stroke,Smith John; Jones Mary
+2024-006,02/03/2024,BLS - Fall,Wilson Tom; Davis Alice; Brown Bob
+2024-007,02/08/2024,ALS - Cardiac,Smith John; Lee Sam; Jones Mary
+2024-008,02/14/2024,BLS - Medical,Davis Alice; Brown Bob
+2024-009,02/19/2024,ALS - Trauma,Smith John; Wilson Tom
+2024-010,02/25/2024,BLS - Psychiatric,Jones Mary; Lee Sam; Davis Alice
