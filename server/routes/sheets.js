@@ -4,12 +4,12 @@
 
 const express = require('express');
 const router  = express.Router();
-const { syncShiftsFromSheet, getShifts } = require('../services/sheetsService');
+const { syncDutyboard, getShifts } = require('../services/sheetsService');
 
 // POST /api/sheets/sync
 router.post('/sync', async (req, res) => {
   try {
-    const result = await syncShiftsFromSheet();
+    const result = await syncDutyboard();
     res.json({ success: true, ...result });
   } catch (err) {
     res.status(500).json({ error: err.message });
