@@ -47,7 +47,8 @@ db.exec(`
     activity    TEXT    NOT NULL,
     points      REAL    DEFAULT 1,
     import_batch TEXT,
-    created_at  TEXT    DEFAULT (datetime('now'))
+    created_at  TEXT    DEFAULT (datetime('now')),
+    UNIQUE(member_id, activity_date)   -- one credit per person per day, safe to re-import
   );
 
   CREATE TABLE IF NOT EXISTS shift_signups (

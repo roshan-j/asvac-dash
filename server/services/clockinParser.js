@@ -1,123 +1,203 @@
 /**
- * Clock-In System Parser (Non-Riding Points)
+ * TimeStation Non-Riding Points Parser
  *
- * Parses CSV/Excel exports from your clock-in system where each row
- * represents a non-riding activity (meetings, training, maintenance, etc.)
+ * Actual export format:
  *
- * Expected columns (flexible matching):
- *   - Member Name / Name / Employee
- *   - Date / Activity Date
- *   - Activity / Description / Event
- *   - Points / Hours / Credit (optional — defaults to 1 per row)
+ *   "Date","Employee ID","Name","Department","Device","Time","Activity","Punch Method",...
+ *   "01/01/2025","1241","Clear, John","Asvac","Call Credit NEW","11:32 AM","Punch In","PIN",...
+ *   "01/01/2025","1241","Clear, John","Asvac","Call Credit NEW","11:32 AM","Punch Out","PIN",...
+ *   "01/01/2025","1277","Daniela Schwartz","College Members","Call Credit NEW","10:01 AM","Punch In","PIN",...
  *
- * Adjust COLUMN_MAP below to match your actual clock-in export headers.
+ * Rules:
+ *  - Filter to rows where Device = "Call Credit NEW" (only non-riding credit events)
+ *  - Group rows by (Employee ID + Date) — each unique combination = 1 point
+ *  - Punch In / Punch Out distinction is irrelevant — just count presence per day
+ *  - John Clear entering his code twice on the same day = 1 point, not 2
+ *  - Member names are normalized to "First Last" title case
+ *  - Employee ID is stored in the member record for cross-system matching
  */
 
 const Papa = require('papaparse');
 const XLSX = require('xlsx');
-const db = require('../db/database');
+const db   = require('../db/database');
 
-const COLUMN_MAP = {
-  memberName: ['member name', 'name', 'employee', 'member', 'full name', 'volunteer name'],
-  date:       ['date', 'activity date', 'clock date', 'event date', 'log date'],
-  activity:   ['activity', 'description', 'event', 'type', 'category', 'clock type'],
-  points:     ['points', 'hours', 'credit', 'value', 'score'],
-};
+const POINTS_PER_SESSION = 1;
+const REQUIRED_DEVICE    = 'call credit new';  // case-insensitive match
 
-function findColumn(headers, aliases) {
-  const lower = headers.map(h => h.toLowerCase().trim());
-  for (const alias of aliases) {
-    const idx = lower.indexOf(alias);
-    if (idx !== -1) return headers[idx];
+// ─── Name normalization ────────────────────────────────────────────────────────
+
+/**
+ * Normalize a TimeStation name to "Firstname Lastname" title case.
+ *
+ * Handles:
+ *   "Clear, John"      → "John Clear"
+ *   "Daniela Schwartz" → "Daniela Schwartz"
+ *   "Arora, Sid"       → "Sid Arora"
+ *   "Moskowitz Susan"  → "Moskowitz Susan"  (already "Last First" without comma — left as-is)
+ */
+function normalizeName(raw) {
+  if (!raw) return null;
+
+  let name = String(raw).trim();
+
+  if (name.includes(',')) {
+    // "Last, First" → "First Last"
+    const [last, ...firstParts] = name.split(',').map(s => s.trim());
+    const first = firstParts.join(' ').trim();
+    name = `${first} ${last}`;
   }
-  return null;
+
+  // Title-case
+  return name
+    .toLowerCase()
+    .replace(/\b\w/g, c => c.toUpperCase())
+    .replace(/\s+/g, ' ')
+    .trim();
 }
+
+// ─── Date parsing ──────────────────────────────────────────────────────────────
 
 function parseDate(raw) {
   if (!raw) return null;
-  const d = new Date(raw);
-  if (!isNaN(d)) return d.toISOString().split('T')[0];
-  const parts = String(raw).split('/');
-  if (parts.length === 3) {
-    const [m, day, y] = parts;
-    const year = y.length === 2 ? '20' + y : y;
-    return `${year}-${m.padStart(2, '0')}-${day.padStart(2, '0')}`;
+  if (raw instanceof Date) {
+    return isNaN(raw) ? null : raw.toISOString().split('T')[0];
+  }
+  const s = String(raw).trim();
+  const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if (m) return `${m[3]}-${m[1].padStart(2,'0')}-${m[2].padStart(2,'0')}`;
+  const d = new Date(s);
+  return isNaN(d) ? null : d.toISOString().split('T')[0];
+}
+
+// ─── Row parsing ───────────────────────────────────────────────────────────────
+
+function findCol(headers, ...aliases) {
+  const lower = headers.map(h => String(h).toLowerCase().trim());
+  for (const alias of aliases) {
+    const i = lower.indexOf(alias.toLowerCase());
+    if (i !== -1) return headers[i];
   }
   return null;
 }
 
-function parseRecords(rows) {
+function parseRows(rows) {
   if (!rows || rows.length === 0) return [];
   const headers = Object.keys(rows[0]);
 
-  const colName     = findColumn(headers, COLUMN_MAP.memberName);
-  const colDate     = findColumn(headers, COLUMN_MAP.date);
-  const colActivity = findColumn(headers, COLUMN_MAP.activity);
-  const colPoints   = findColumn(headers, COLUMN_MAP.points);
+  const colDate     = findCol(headers, 'date');
+  const colEmpId    = findCol(headers, 'employee id', 'employee_id', 'emp id', 'empid');
+  const colName     = findCol(headers, 'name', 'employee name', 'member name');
+  const colDevice   = findCol(headers, 'device');
 
-  if (!colName) throw new Error('Could not find a member name column. Check COLUMN_MAP in clockinParser.js.');
-  if (!colDate) throw new Error('Could not find a date column. Check COLUMN_MAP in clockinParser.js.');
+  if (!colDate)  throw new Error('Could not find "Date" column in TimeStation export.');
+  if (!colName)  throw new Error('Could not find "Name" column in TimeStation export.');
+  if (!colEmpId) throw new Error('Could not find "Employee ID" column in TimeStation export.');
 
-  return rows
-    .map(row => ({
-      memberName:   String(row[colName]     || '').trim(),
-      activityDate: parseDate(row[colDate]),
-      activity:     colActivity ? String(row[colActivity] || '').trim() : 'Clock-in',
-      points:       colPoints   ? (parseFloat(row[colPoints]) || 1) : 1,
-    }))
-    .filter(r => r.memberName && r.activityDate);
+  // Build a deduplicated set: key = "empId|date" → { empId, date, name }
+  const sessions = new Map();
+
+  for (const row of rows) {
+    // Only process "Call Credit NEW" device rows if column exists
+    if (colDevice) {
+      const device = String(row[colDevice] || '').toLowerCase().trim();
+      if (!device.includes(REQUIRED_DEVICE.replace(/ new$/, ''))) continue;
+      // Accept any "Call Credit" device variant
+    }
+
+    const date   = parseDate(row[colDate]);
+    const empId  = String(row[colEmpId] || '').trim();
+    const name   = normalizeName(row[colName]);
+
+    if (!date || !empId || !name) continue;
+
+    const key = `${empId}|${date}`;
+    if (!sessions.has(key)) {
+      sessions.set(key, { empId, date, name });
+    }
+  }
+
+  return [...sessions.values()];
 }
 
 function parseCsv(buffer) {
   const text = buffer.toString('utf8');
-  const result = Papa.parse(text, { header: true, skipEmptyLines: true });
-  return parseRecords(result.data);
+  const { data } = Papa.parse(text, { header: true, skipEmptyLines: true });
+  return parseRows(data);
 }
 
 function parseExcel(buffer) {
   const wb = XLSX.read(buffer, { type: 'buffer', cellDates: true });
   const ws = wb.Sheets[wb.SheetNames[0]];
   const rows = XLSX.utils.sheet_to_json(ws, { defval: '' });
-  return parseRecords(rows);
+  return parseRows(rows);
 }
 
+// ─── DB import ─────────────────────────────────────────────────────────────────
+
 /**
- * Import clock-in data into the database.
- * Returns { inserted, skipped, records, newMembers }
+ * Import TimeStation data. Returns { inserted, skipped, members, sessions }
+ *
+ * Uses Employee ID as the lookup key when creating/finding members, then
+ * falls back to name-based lookup so riding and non-riding records
+ * link to the same member row.
  */
 function importClockinData(buffer, filename, batchId) {
   const ext = filename.toLowerCase().split('.').pop();
-  const records = ext === 'csv' ? parseCsv(buffer) : parseExcel(buffer);
+  const sessions = ext === 'csv' ? parseCsv(buffer) : parseExcel(buffer);
 
-  const getOrCreateMember = db.prepare(`
+  if (sessions.length === 0) {
+    throw new Error('No valid sessions found. Check that this is a TimeStation export with a "Call Credit" device.');
+  }
+
+  // Try to find existing member by name (normalized), create if not found
+  const findByName = db.prepare(`SELECT id FROM members WHERE name = ?`);
+  const insertMember = db.prepare(`
     INSERT INTO members (name) VALUES (?)
-    ON CONFLICT(name) DO UPDATE SET name=name
+    ON CONFLICT(name) DO UPDATE SET name = excluded.name
     RETURNING id
   `);
+
   const insertPoint = db.prepare(`
-    INSERT INTO nonriding_points (member_id, activity_date, activity, points, import_batch)
-    VALUES (?, ?, ?, ?, ?)
+    INSERT OR IGNORE INTO nonriding_points
+      (member_id, activity_date, activity, points, import_batch)
+    VALUES (?, ?, 'Call Credit', ?, ?)
   `);
 
   let inserted = 0, skipped = 0;
-  const newMembers = new Set();
+  const membersSeen = new Set();
 
   const run = db.transaction(() => {
-    for (const rec of records) {
-      try {
-        const row = getOrCreateMember.get(rec.memberName);
-        if (!row) continue;
-        newMembers.add(rec.memberName);
-        insertPoint.run(row.id, rec.activityDate, rec.activity, rec.points, batchId);
-        inserted++;
-      } catch {
-        skipped++;
+    for (const session of sessions) {
+      // Look up or create member by normalized name
+      let row = findByName.get(session.name);
+      if (!row) {
+        row = insertMember.get(session.name);
       }
+      if (!row) continue;
+
+      membersSeen.add(session.name);
+
+      const result = insertPoint.run(
+        row.id,
+        session.date,
+        POINTS_PER_SESSION,
+        batchId
+      );
+
+      if (result.changes > 0) inserted++;
+      else skipped++;
     }
   });
 
   run();
-  return { inserted, skipped, records: records.length, newMembers: [...newMembers] };
+
+  return {
+    inserted,
+    skipped,
+    sessions: sessions.length,
+    members:  membersSeen.size,
+    pointsAwarded: inserted * POINTS_PER_SESSION,
+  };
 }
 
-module.exports = { importClockinData };
+module.exports = { importClockinData, normalizeName };
