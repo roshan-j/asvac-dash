@@ -1,19 +1,24 @@
 /**
  * ESO (Widget) Call Record Parser
  *
- * Actual export format — 2 columns, one member per row:
+ * Supports two export formats:
  *
+ * FORMAT A — legacy 2-column widget export:
  *   "Time in PSAP Call","PM Complete Person Name (Last, First Middle Suffix | Employee Number)"
  *   "01/01/2025 08:45","CLEAR, JOHN"
- *   "01/01/2025 08:45","ARORA, SIDDHARTH"
- *   "01/02/2025 09:45","KATZENSTEIN, JED | 481112"
+ *   "01/01/2025 08:45","ARORA, SIDDHARTH | 481112"
  *
- * Rules:
+ * FORMAT B — new 4-column widget export:
+ *   "ESO Record ID","Time in ESO Record Created Date","Crew Full Name","Crew Standard Role"
+ *   "b28287f4-...","10/20/2025 11:40","Patricia Leone","Driver"
+ *   "b28287f4-...","10/20/2025 11:40","JOHANNA MENA","Lead"
+ *
+ * Rules (both formats):
  *  - Each row = one member on one call
- *  - Rows sharing the same "Time in PSAP Call" value are the same call
- *  - Each member earns POINTS_PER_CALL (2) for each unique call they appear on
- *  - The call timestamp is used as the call identifier for deduplication
- *  - Member names are normalized: strip "| EmployeeNum", convert to "First Last" title case
+ *  - Each member earns POINTS_PER_CALL (2) per unique call
+ *  - Format A: call key = raw timestamp string
+ *  - Format B: call key = ESO Record ID (UUID — more reliable deduplication)
+ *  - Member names normalized to "First Last" title case
  */
 
 const Papa = require('papaparse');
@@ -88,15 +93,38 @@ function parseCallDate(raw) {
 
 // ─── Row parsing ───────────────────────────────────────────────────────────────
 
-const COL_TIMESTAMP = 'time in psap call';
-const COL_MEMBER    = 'pm complete person name';   // prefix match — full header is long
+// Format A column identifiers (prefix match)
+const COL_A_TIMESTAMP = 'time in psap call';
+const COL_A_MEMBER    = 'pm complete person name';
 
+// Format B column identifiers (exact, lowercased)
+const COL_B_ID        = 'eso record id';
+const COL_B_TIMESTAMP = 'time in eso record created date';
+const COL_B_MEMBER    = 'crew full name';
+
+/**
+ * Detect export format and return column name mapping.
+ * Returns { format: 'A'|'B', tsCol, mbCol, idCol }
+ * idCol is only present for Format B.
+ */
 function findHeaders(rawHeaders) {
   const lower = rawHeaders.map(h => String(h).toLowerCase().trim());
 
-  const tsIdx = lower.findIndex(h => h.startsWith(COL_TIMESTAMP));
-  const mbIdx = lower.findIndex(h => h.startsWith(COL_MEMBER));
+  // Detect Format B first (has ESO Record ID column)
+  const idIdx = lower.findIndex(h => h === COL_B_ID);
+  if (idIdx !== -1) {
+    const tsIdx = lower.findIndex(h => h === COL_B_TIMESTAMP);
+    const mbIdx = lower.findIndex(h => h === COL_B_MEMBER);
+    if (tsIdx === -1 || mbIdx === -1) throw new Error(
+      'Detected new ESO format (has "ESO Record ID") but missing expected columns. ' +
+      `Found: ${rawHeaders.join(', ')}`
+    );
+    return { format: 'B', tsCol: rawHeaders[tsIdx], mbCol: rawHeaders[mbIdx], idCol: rawHeaders[idIdx] };
+  }
 
+  // Fall back to Format A
+  const tsIdx = lower.findIndex(h => h.startsWith(COL_A_TIMESTAMP));
+  const mbIdx = lower.findIndex(h => h.startsWith(COL_A_MEMBER));
   if (tsIdx === -1) throw new Error(
     'Could not find "Time in PSAP Call" column in ESO export. ' +
     `Found columns: ${rawHeaders.join(', ')}`
@@ -105,13 +133,12 @@ function findHeaders(rawHeaders) {
     'Could not find member name column in ESO export. ' +
     `Found columns: ${rawHeaders.join(', ')}`
   );
-
-  return { tsCol: rawHeaders[tsIdx], mbCol: rawHeaders[mbIdx] };
+  return { format: 'A', tsCol: rawHeaders[tsIdx], mbCol: rawHeaders[mbIdx] };
 }
 
 function parseRows(rows) {
   if (!rows || rows.length === 0) return [];
-  const { tsCol, mbCol } = findHeaders(Object.keys(rows[0]));
+  const { format, tsCol, mbCol, idCol } = findHeaders(Object.keys(rows[0]));
 
   const records = [];
   for (const row of rows) {
@@ -119,11 +146,15 @@ function parseRows(rows) {
     const rawName = row[mbCol];
 
     const callDate   = parseCallDate(rawDate);
-    // Use the full raw timestamp string as the call key for deduplication
-    const callKey    = String(rawDate || '').trim();
     const memberName = normalizeName(rawName);
-
     if (!callDate || !memberName) continue;
+
+    // Format B uses UUID as call key; Format A uses the raw timestamp string
+    const callKey = format === 'B'
+      ? String(row[idCol] || '').trim()
+      : String(rawDate || '').trim();
+
+    if (!callKey) continue;
     records.push({ callDate, callKey, memberName });
   }
   return records;

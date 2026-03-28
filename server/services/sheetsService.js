@@ -1,176 +1,281 @@
 /**
- * Google Sheets Service — Shift Signup Sync
+ * ASVAC Adult Dutyboard — Google Sheets Auto-Sync
  *
- * Reads shift signups from a Google Sheet that has multiple tabs (one per
- * month or crew type). Each tab should have columns for member name,
- * shift date, and optionally shift type.
+ * Reads the public ASVAC dutyboard spreadsheet directly.
+ * No service account needed — only a free Google API key (for listing tabs).
+ * The sheet must be set to "Anyone with the link can view".
  *
- * Setup:
- *  1. Create a Google Cloud project & enable the Sheets API
- *  2. Create a Service Account, download the JSON key, save as credentials.json
- *  3. Share your Google Sheet with the service account email
- *  4. Set GOOGLE_SHEET_ID in .env
+ * Sheet structure (one tab per week, named e.g. "3/15-3/21"):
+ *   Row 1: Day names  (SUNDAY … SATURDAY)      — columns B–H
+ *   Row 2: Dates      (3/15/2026 … 3/21/2026)  — columns B–H
+ *   Then repeating groups of 4 rows per 2-hour slot:
+ *     "MORNING (0600-0800)"    ← time-slot header
+ *     "Driver\n50-B1/50-B2"   ← names in columns B–H
+ *     "EMT\n50-B1/50-B2"
+ *     "Rider/Prob. EMT\n..."
+ *   …up to EVENING (2000-2200)
+ *   "Events/Awareness" row    ← ignored
  *
- * Tab/column mapping is flexible — adjust COLUMN_MAP below.
+ * Scoring: 1 point per 2-hour shift slot signed up for.
+ *
+ * .env keys required:
+ *   GOOGLE_SHEET_ID   — the spreadsheet ID from the URL
+ *   GOOGLE_API_KEY    — free API key (enable Google Sheets API in Cloud Console)
+ *   SHEETS_SYNC_CRON  — cron expression, default "0 * * * *" (every hour)
  */
 
-const { google } = require('googleapis');
-const db = require('../db/database');
-const path = require('path');
-const fs = require('fs');
+const https    = require('https');
+const Papa     = require('papaparse');
+const db       = require('../db/database');
 
-const CREDENTIALS_PATH = path.join(__dirname, '../../credentials.json');
-const SHEET_ID = process.env.GOOGLE_SHEET_ID;
+const SHEET_ID       = process.env.GOOGLE_SHEET_ID;
+const API_KEY        = process.env.GOOGLE_API_KEY;
+const POINTS_PER_SHIFT = 1;
 
-// Column header aliases per tab (adjust to match your sheet)
-const COLUMN_MAP = {
-  memberName: ['name', 'member', 'member name', 'volunteer', 'full name'],
-  shiftDate:  ['date', 'shift date', 'scheduled date', 'day'],
-  shiftType:  ['shift type', 'type', 'crew', 'position', 'role'],
-};
+// Identifies a valid weekly schedule tab name vs PERSONNEL, Sheet39, KEY, etc.
+// Matches patterns like "3/15-3/21", "06/16-6/22", "12/28-1/3"
+const WEEKLY_TAB_RE  = /\d{1,2}\/\d{1,2}.*-.*\d{1,2}\/\d{1,2}/;
 
-function findColIndex(headers, aliases) {
-  const lower = headers.map(h => String(h).toLowerCase().trim());
-  for (const alias of aliases) {
-    const idx = lower.indexOf(alias);
-    if (idx !== -1) return idx;
-  }
-  return -1;
+// Identifies a time-slot header row: "MORNING (0600-0800)", "EVENING (2000-2200) ", etc.
+const SHIFT_HEADER_RE = /(MORNING|AFTERNOON|EVENING|OVERNIGHT|NIGHT)\s*\((\d{4})-(\d{4})\)/i;
+
+// Identifies a crew role row whose names we should extract
+const ROLE_ROW_RE = /^(Driver|EMT|Rider)/i;
+
+// ─── HTTP helper ──────────────────────────────────────────────────────────────
+
+function httpGet(url) {
+  return new Promise((resolve, reject) => {
+    https.get(url, res => {
+      let body = '';
+      res.on('data', chunk => body += chunk);
+      res.on('end', () => resolve({ status: res.statusCode, body }));
+    }).on('error', reject);
+  });
 }
 
-function parseSheetDate(raw) {
+// ─── Name extraction ──────────────────────────────────────────────────────────
+
+/**
+ * Strip the role suffix from a cell value and return the clean name.
+ *
+ * "Patricia Leone, D"       → "Patricia Leone"
+ * "Noah Bonnet, DEMT"       → "Noah Bonnet"
+ * "Shijo Zacharias, PEMT"   → "Shijo Zacharias"
+ * "Josephine Kelly, EMT (P)"→ "Josephine Kelly"
+ * "Alex Wang, EMT (P)"      → "Alex Wang"
+ * "Jakub Olszowski"         → "Jakub Olszowski"   (no suffix)
+ *
+ * Suffix pattern: comma + uppercase identifier + optional parenthetical (e.g. "(P)").
+ */
+function extractName(raw) {
   if (!raw) return null;
-  const d = new Date(raw);
-  if (!isNaN(d)) return d.toISOString().split('T')[0];
-  const parts = String(raw).split('/');
-  if (parts.length === 3) {
-    const [m, day, y] = parts;
-    const year = y.length === 2 ? '20' + y : y;
-    return `${year}-${m.padStart(2, '0')}-${day.padStart(2, '0')}`;
-  }
+  const name = raw.trim()
+    .replace(/,\s*[A-Z]+(?:\s*\([A-Z]\))?\s*$/, '')
+    .trim();
+  return name || null;
+}
+
+// ─── Date parsing ──────────────────────────────────────────────────────────────
+
+function parseDate(raw) {
+  if (!raw) return null;
+  const m = String(raw).match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if (m) return `${m[3]}-${m[1].padStart(2,'0')}-${m[2].padStart(2,'0')}`;
   return null;
 }
 
-async function getAuthClient() {
-  if (!fs.existsSync(CREDENTIALS_PATH)) {
-    throw new Error(
-      'Google credentials file not found. ' +
-      'Download your service account JSON key and save it as credentials.json in the project root.'
-    );
+// ─── List all tabs via Sheets API v4 (free API key, public sheet) ─────────────
+
+async function listAllTabs() {
+  if (!SHEET_ID) throw new Error('GOOGLE_SHEET_ID is not set in .env');
+  if (!API_KEY)  throw new Error(
+    'GOOGLE_API_KEY is not set in .env.\n' +
+    'Get a free key at console.cloud.google.com → APIs & Services → Credentials.\n' +
+    'Enable the "Google Sheets API" and create an API Key.'
+  );
+
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}` +
+              `?key=${API_KEY}&fields=sheets.properties(title)`;
+  const { status, body } = await httpGet(url);
+
+  if (status !== 200) {
+    const msg = JSON.parse(body)?.error?.message || body.slice(0, 200);
+    throw new Error(`Sheets API returned ${status}: ${msg}`);
   }
-  const auth = new google.auth.GoogleAuth({
-    keyFile: CREDENTIALS_PATH,
-    scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly'],
-  });
-  return auth.getClient();
+
+  const data = JSON.parse(body);
+  return data.sheets.map(s => s.properties.title);
 }
 
+// ─── Fetch one tab as CSV via the public gviz endpoint ────────────────────────
+
+async function fetchTabCsv(tabName) {
+  const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}` +
+              `/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(tabName)}`;
+  const { status, body } = await httpGet(url);
+  return status === 200 ? body : null;
+}
+
+// ─── Parse one weekly tab CSV → signup records ────────────────────────────────
+
+function parseTabCsv(csvText, tabName) {
+  const { data: rows } = Papa.parse(csvText, {
+    header:          false,
+    skipEmptyLines:  false,
+  });
+
+  if (rows.length < 2) return [];
+
+  // Row index 1 holds the actual dates in columns 1–7 (B–H)
+  const dateRow = rows[1];
+  const colDates = {};          // colIndex → "YYYY-MM-DD"
+  for (let c = 1; c <= 7; c++) {
+    const d = parseDate(dateRow[c]);
+    if (d) colDates[c] = d;
+  }
+  if (Object.keys(colDates).length === 0) return [];
+
+  const signups = [];
+  let currentShift = null;      // e.g. "0600-0800"
+
+  for (let r = 2; r < rows.length; r++) {
+    const row  = rows[r];
+    const col0 = String(row[0] || '').trim();
+    if (!col0) continue;
+
+    // ── Time-slot header? ──────────────────────────────────────────────────
+    const shiftMatch = col0.match(SHIFT_HEADER_RE);
+    if (shiftMatch) {
+      currentShift = `${shiftMatch[2]}-${shiftMatch[3]}`;  // "0600-0800"
+      continue;
+    }
+
+    // ── Skip non-role rows (Events/Awareness, blank labels, etc.) ──────────
+    if (!ROLE_ROW_RE.test(col0) || !currentShift) continue;
+
+    // ── Extract member names from columns B–H ─────────────────────────────
+    for (let c = 1; c <= 7; c++) {
+      const cell = String(row[c] || '').trim();
+      if (!cell || !colDates[c]) continue;
+      const name = extractName(cell);
+      if (name) {
+        signups.push({
+          memberName: name,
+          date:       colDates[c],
+          shiftTime:  currentShift,
+          tabName,
+        });
+      }
+    }
+  }
+
+  return signups;
+}
+
+// ─── Main sync ────────────────────────────────────────────────────────────────
+
 /**
- * Fetch all tabs from the configured Google Sheet and sync shift signups to DB.
- * Returns { synced, tabs, errors }
+ * Sync all weekly dutyboard tabs to the database.
+ *
+ * For each weekly tab:
+ *   1. Fetch the CSV
+ *   2. Parse into (member, date, shiftTime) records
+ *   3. Delete the existing records for that tab, re-insert fresh
+ *      (so removed sign-ups are also reflected)
+ *
+ * Returns { synced, weeklyTabsFound, tabs, errors }
  */
-async function syncShiftsFromSheet() {
+async function syncDutyboard() {
   if (!SHEET_ID) throw new Error('GOOGLE_SHEET_ID is not set in .env');
 
-  const auth = await getAuthClient();
-  const sheets = google.sheets({ version: 'v4', auth });
+  const allTabs     = await listAllTabs();
+  const weeklyTabs  = allTabs.filter(t => WEEKLY_TAB_RE.test(t));
 
-  // Get list of tabs
-  const meta = await sheets.spreadsheets.get({ spreadsheetId: SHEET_ID });
-  const tabNames = meta.data.sheets.map(s => s.properties.title);
+  if (weeklyTabs.length === 0) throw new Error(
+    'No weekly schedule tabs found. ' +
+    'Expected tabs named like "3/15-3/21". Check GOOGLE_SHEET_ID in .env.'
+  );
 
   const getOrCreateMember = db.prepare(`
     INSERT INTO members (name) VALUES (?)
-    ON CONFLICT(name) DO UPDATE SET name=name
+    ON CONFLICT(name) DO UPDATE SET name = excluded.name
     RETURNING id
   `);
-  const insertShift = db.prepare(`
-    INSERT OR IGNORE INTO shift_signups (member_id, shift_date, shift_type, shift_tab, synced_at)
-    VALUES (?, ?, ?, ?, datetime('now'))
+
+  const deleteTab = db.prepare(`
+    DELETE FROM shift_signups WHERE shift_tab = ?
   `);
-  // Clear existing synced data before re-sync to avoid duplicates
-  const clearShifts = db.prepare(`DELETE FROM shift_signups`);
 
-  let synced = 0;
+  const insertSignup = db.prepare(`
+    INSERT OR IGNORE INTO shift_signups
+      (member_id, shift_date, shift_time, shift_tab)
+    VALUES (?, ?, ?, ?)
+  `);
+
+  let totalSynced = 0;
   const tabResults = [];
-  const errors = [];
+  const errors     = [];
 
-  // Clear and re-sync
-  clearShifts.run();
-
-  const syncAll = db.transaction(async () => {
-    for (const tab of tabNames) {
-      try {
-        const resp = await sheets.spreadsheets.values.get({
-          spreadsheetId: SHEET_ID,
-          range: tab,
-        });
-
-        const rows = resp.data.values || [];
-        if (rows.length < 2) continue;
-
-        const headers = rows[0];
-        const colName  = findColIndex(headers, COLUMN_MAP.memberName);
-        const colDate  = findColIndex(headers, COLUMN_MAP.shiftDate);
-        const colType  = findColIndex(headers, COLUMN_MAP.shiftType);
-
-        if (colName === -1 || colDate === -1) {
-          errors.push(`Tab "${tab}": could not find required columns (name, date)`);
-          continue;
-        }
-
-        let tabCount = 0;
-        for (const row of rows.slice(1)) {
-          const name  = String(row[colName] || '').trim();
-          const date  = parseSheetDate(row[colDate]);
-          const stype = colType !== -1 ? String(row[colType] || '').trim() : null;
-          if (!name || !date) continue;
-
-          const member = getOrCreateMember.get(name);
-          if (!member) continue;
-          insertShift.run(member.id, date, stype, tab);
-          tabCount++;
-        }
-
-        tabResults.push({ tab, count: tabCount });
-        synced += tabCount;
-      } catch (err) {
-        errors.push(`Tab "${tab}": ${err.message}`);
+  for (const tabName of weeklyTabs) {
+    try {
+      const csv = await fetchTabCsv(tabName);
+      if (!csv) {
+        errors.push(`${tabName}: could not fetch CSV`);
+        continue;
       }
+
+      const signups = parseTabCsv(csv, tabName);
+
+      db.transaction(() => {
+        deleteTab.run(tabName);
+        for (const s of signups) {
+          const member = getOrCreateMember.get(s.memberName);
+          if (member) {
+            insertSignup.run(member.id, s.date, s.shiftTime, s.tabName);
+          }
+        }
+      })();
+
+      tabResults.push({ tab: tabName, signups: signups.length });
+      totalSynced += signups.length;
+
+    } catch (err) {
+      errors.push(`${tabName}: ${err.message}`);
     }
-  });
+  }
 
-  await syncAll();
+  // Remove ghost members created by previous bad name extraction (no data anywhere)
+  const cleaned = db.prepare(`
+    DELETE FROM members
+    WHERE id NOT IN (SELECT DISTINCT member_id FROM riding_points)
+      AND id NOT IN (SELECT DISTINCT member_id FROM nonriding_points)
+      AND id NOT IN (SELECT DISTINCT member_id FROM shift_signups)
+  `).run();
+  if (cleaned.changes > 0) {
+    console.log(`[sheets] Removed ${cleaned.changes} orphan member record(s).`);
+  }
 
-  return { synced, tabs: tabResults, errors };
+  console.log(`[sheets] Synced ${totalSynced} shift signups across ${tabResults.length} tabs.`);
+  return { synced: totalSynced, weeklyTabsFound: weeklyTabs.length, tabs: tabResults, errors };
 }
 
-/**
- * Return shift signups from DB (already synced), optionally filtered by period.
- */
+// ─── Query helpers ─────────────────────────────────────────────────────────────
+
 function getShifts({ year, month, memberId } = {}) {
-  let query = `
+  let sql = `
     SELECT ss.*, m.name AS member_name
     FROM shift_signups ss
     JOIN members m ON m.id = ss.member_id
     WHERE 1=1
   `;
   const params = [];
-
-  if (year) {
-    query += ` AND strftime('%Y', ss.shift_date) = ?`;
-    params.push(String(year));
-  }
-  if (month) {
-    query += ` AND strftime('%m', ss.shift_date) = ?`;
-    params.push(String(month).padStart(2, '0'));
-  }
-  if (memberId) {
-    query += ` AND ss.member_id = ?`;
-    params.push(memberId);
-  }
-
-  return db.prepare(query).all(...params);
+  if (year)     { sql += ` AND strftime('%Y', ss.shift_date) = ?`;  params.push(String(year)); }
+  if (month)    { sql += ` AND strftime('%m', ss.shift_date) = ?`;  params.push(String(month).padStart(2,'0')); }
+  if (memberId) { sql += ` AND ss.member_id = ?`;                   params.push(memberId); }
+  sql += ` ORDER BY ss.shift_date, ss.shift_time`;
+  return db.prepare(sql).all(...params);
 }
 
-module.exports = { syncShiftsFromSheet, getShifts };
+// Test the name extraction (called from unit tests)
+module.exports = { syncDutyboard, getShifts, extractName, parseTabCsv, fetchTabCsv };
