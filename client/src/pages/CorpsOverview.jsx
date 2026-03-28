@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useApi } from '../hooks/useApi';
 import { getCorpsTrend, getCorpsMonth, getLeaderboard, getPeriods } from '../api/client';
 import CorpsTrendChart from '../components/Charts/CorpsTrendChart';
+import RidesHistogramChart from '../components/Charts/RidesHistogramChart';
 import { formatPeriod, vsAvg } from '../utils/format';
 
 function StatCard({ label, value, sub, color = '#1a3a6b' }) {
@@ -64,6 +65,12 @@ export default function CorpsOverview() {
         {tl ? <p style={styles.loading}>Loading…</p> : <CorpsTrendChart data={trend} />}
       </div>
 
+      {/* Rides-per-member histogram */}
+      <div style={styles.section}>
+        <h2 style={styles.h2}>Riding Contribution — {formatPeriod(year, month)}</h2>
+        {bl ? <p style={styles.loading}>Loading…</p> : <RidesHistogramChart data={board} />}
+      </div>
+
       {/* Leaderboard */}
       <div style={styles.section}>
         <h2 style={styles.h2}>Leaderboard — {formatPeriod(year, month)}</h2>
@@ -72,7 +79,7 @@ export default function CorpsOverview() {
             <table style={styles.table}>
               <thead>
                 <tr>
-                  {['Rank', 'Member', 'Riding', 'Non-Riding', 'Total'].map(h => (
+                  {['Rank', 'Member', 'Riding Pts', 'Clock-Ins', 'Shifts', 'Total Pts'].map(h => (
                     <th key={h} style={styles.th}>{h}</th>
                   ))}
                 </tr>
@@ -85,12 +92,13 @@ export default function CorpsOverview() {
                     </td>
                     <td style={styles.td}>{row.name}</td>
                     <td style={styles.td}>{row.ridingPoints}</td>
-                    <td style={styles.td}>{row.nonridingPoints}</td>
+                    <td style={styles.td}>{row.nonridingClockIns}</td>
+                    <td style={styles.td}>{row.shiftSignups}</td>
                     <td style={{ ...styles.td, fontWeight: 700 }}>{row.totalPoints}</td>
                   </tr>
                 ))}
                 {(!board || board.length === 0) && (
-                  <tr><td colSpan={5} style={{ textAlign: 'center', padding: 24, color: '#888' }}>No data for this period</td></tr>
+                  <tr><td colSpan={6} style={{ textAlign: 'center', padding: 24, color: '#888' }}>No data for this period</td></tr>
                 )}
               </tbody>
             </table>
