@@ -55,10 +55,10 @@ db.exec(`
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     member_id   INTEGER NOT NULL REFERENCES members(id),
     shift_date  TEXT    NOT NULL,
-    shift_type  TEXT,
-    shift_tab   TEXT,               -- which Google Sheet tab it came from
-    status      TEXT    DEFAULT 'signed_up',
-    synced_at   TEXT    DEFAULT (datetime('now'))
+    shift_time  TEXT,               -- "0600-0800", "0800-1000", etc.
+    shift_tab   TEXT,               -- Google Sheet tab name e.g. "3/15-3/21"
+    synced_at   TEXT    DEFAULT (datetime('now')),
+    UNIQUE(member_id, shift_date, shift_time)   -- safe to re-sync
   );
 
   CREATE TABLE IF NOT EXISTS email_logs (

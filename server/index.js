@@ -2,10 +2,12 @@ require('dotenv').config();
 const express = require('express');
 const cors    = require('cors');
 const path    = require('path');
+const cron    = require('node-cron');
 
 const dataRoutes   = require('./routes/data');
 const emailRoutes  = require('./routes/email');
 const sheetsRoutes = require('./routes/sheets');
+const { syncDutyboard } = require('./services/sheetsService');
 
 const app  = express();
 const PORT = process.env.PORT || 3001;
@@ -34,6 +36,35 @@ if (process.env.NODE_ENV === 'production') {
   });
 }
 
-app.listen(PORT, () => {
+// ─── Dutyboard auto-sync ───────────────────────────────────────────────────────
+// Default: sync every hour. Override with SHEETS_SYNC_CRON in .env.
+// Set SHEETS_SYNC_CRON=disabled to turn off auto-sync entirely.
+const SYNC_CRON = process.env.SHEETS_SYNC_CRON || '0 * * * *';
+
+async function runSync(label = 'scheduled') {
+  if (!process.env.GOOGLE_SHEET_ID || !process.env.GOOGLE_API_KEY) return;
+  try {
+    const result = await syncDutyboard();
+    console.log(`[sheets:${label}] ${result.synced} signups synced across ${result.tabs.length} tabs`);
+    if (result.errors.length) console.warn('[sheets] Errors:', result.errors);
+  } catch (err) {
+    console.error(`[sheets:${label}] Sync failed:`, err.message);
+  }
+}
+
+app.listen(PORT, async () => {
   console.log(`ASVAС Dashboard server running on http://localhost:${PORT}`);
+
+  // Sync once immediately on startup
+  await runSync('startup');
+
+  // Then schedule recurring sync
+  if (SYNC_CRON !== 'disabled') {
+    if (cron.validate(SYNC_CRON)) {
+      cron.schedule(SYNC_CRON, () => runSync('cron'));
+      console.log(`[sheets] Auto-sync scheduled: "${SYNC_CRON}"`);
+    } else {
+      console.warn(`[sheets] Invalid SHEETS_SYNC_CRON value: "${SYNC_CRON}" — auto-sync disabled`);
+    }
+  }
 });
