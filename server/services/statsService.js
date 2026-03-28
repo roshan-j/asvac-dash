@@ -159,9 +159,11 @@ function getLeaderboard(year, month) {
     SELECT
       m.id,
       m.name,
-      COALESCE(r.points, 0)  AS ridingPoints,
-      COALESCE(nr.points, 0) AS nonridingPoints,
-      COALESCE(r.points, 0) + COALESCE(nr.points, 0) AS totalPoints
+      COALESCE(r.points, 0)   AS ridingPoints,
+      COALESCE(nr.points, 0)  AS nonridingPoints,
+      COALESCE(r.points, 0) + COALESCE(nr.points, 0) AS totalPoints,
+      COALESCE(nr.clockins, 0) AS nonridingClockIns,
+      COALESCE(s.signups, 0)  AS shiftSignups
     FROM members m
     LEFT JOIN (
       SELECT member_id, SUM(points) AS points
@@ -169,13 +171,21 @@ function getLeaderboard(year, month) {
       GROUP BY member_id
     ) r ON r.member_id = m.id
     LEFT JOIN (
-      SELECT member_id, SUM(points) AS points
+      SELECT member_id, SUM(points) AS points, COUNT(*) AS clockins
       FROM nonriding_points WHERE activity_date BETWEEN ? AND ?
       GROUP BY member_id
     ) nr ON nr.member_id = m.id
+    LEFT JOIN (
+      SELECT member_id, COUNT(*) AS signups
+      FROM shift_signups WHERE shift_date BETWEEN ? AND ?
+      GROUP BY member_id
+    ) s ON s.member_id = m.id
     WHERE m.status = 'active'
+      AND (COALESCE(r.points, 0) > 0
+        OR COALESCE(nr.points, 0) > 0
+        OR COALESCE(s.signups, 0) > 0)
     ORDER BY totalPoints DESC
-  `).all(start, end, start, end);
+  `).all(start, end, start, end, start, end);
 
   return rows.map((row, idx) => ({ rank: idx + 1, ...row }));
 }
