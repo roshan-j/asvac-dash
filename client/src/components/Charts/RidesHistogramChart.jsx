@@ -5,7 +5,6 @@ import {
 const COLORS = ['#1a3a6b', '#1f4d8c', '#2461ad', '#2e7d32', '#388e3c'];
 
 export default function RidesHistogramChart({ data }) {
-  // Filter to riders only, sorted highest → lowest
   const riders = (data || [])
     .filter(d => d.ridingPoints > 0)
     .sort((a, b) => b.ridingPoints - a.ridingPoints);
@@ -14,8 +13,10 @@ export default function RidesHistogramChart({ data }) {
 
   const total = riders.reduce((s, d) => s + d.ridingPoints, 0);
 
-  const chartData = riders.map(d => ({
-    name:   d.name.split(' ').slice(-1)[0], // last name for brevity on axis
+  // Use numeric index as dataKey so duplicate last names never collide on the axis
+  const chartData = riders.map((d, i) => ({
+    idx:    i,
+    label:  d.name.split(' ')[0],   // first name — unique enough, fits narrow bars
     full:   d.name,
     points: d.ridingPoints,
     pct:    ((d.ridingPoints / total) * 100).toFixed(1),
@@ -42,7 +43,8 @@ export default function RidesHistogramChart({ data }) {
         <BarChart data={chartData} margin={{ top: 4, right: 8, left: 0, bottom: 60 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="#e5e9f0" vertical={false} />
           <XAxis
-            dataKey="name"
+            dataKey="idx"
+            tickFormatter={i => chartData[i]?.label ?? ''}
             tick={{ fontSize: 11 }}
             angle={-45}
             textAnchor="end"
