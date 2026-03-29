@@ -1,9 +1,9 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useApi } from '../hooks/useApi';
 import { getCorpsTrend, getCorpsMonth, getLeaderboard, getPeriods } from '../api/client';
 import CorpsTrendChart from '../components/Charts/CorpsTrendChart';
 import RidesHistogramChart from '../components/Charts/RidesHistogramChart';
-import { formatPeriod, vsAvg } from '../utils/format';
+import { formatPeriod } from '../utils/format';
 
 function StatCard({ label, value, sub, color = '#1a3a6b' }) {
   return (
@@ -15,15 +15,47 @@ function StatCard({ label, value, sub, color = '#1a3a6b' }) {
   );
 }
 
+// Columns config: key = field in board row, label = header text, align = left|right
+const COLUMNS = [
+  { key: 'rank',             label: 'Rank',       align: 'left'  },
+  { key: 'name',             label: 'Member',     align: 'left'  },
+  { key: 'ridingPoints',     label: 'Riding Pts', align: 'right' },
+  { key: 'nonridingClockIns',label: 'Clock-Ins',  align: 'right' },
+  { key: 'shiftSignups',     label: 'Shifts',     align: 'right' },
+  { key: 'totalPoints',      label: 'Total Pts',  align: 'right' },
+];
+
 export default function CorpsOverview() {
   const now = new Date();
-  const [year,  setYear]  = useState(now.getFullYear());
-  const [month, setMonth] = useState(now.getMonth() + 1);
+  const [year,    setYear]    = useState(now.getFullYear());
+  const [month,   setMonth]   = useState(now.getMonth() + 1);
+  const [sortCol, setSortCol] = useState('totalPoints');
+  const [sortDir, setSortDir] = useState('desc');
 
-  const { data: periods } = useApi(getPeriods, []);
   const { data: trend,   loading: tl } = useApi(getCorpsTrend, [12], []);
   const { data: monthly, loading: ml } = useApi(getCorpsMonth,  [year, month], [year, month]);
   const { data: board,   loading: bl } = useApi(getLeaderboard, [year, month], [year, month]);
+
+  // Sort leaderboard client-side based on clicked column
+  const sortedBoard = useMemo(() => {
+    if (!board) return [];
+    return [...board].sort((a, b) => {
+      const av = a[sortCol], bv = b[sortCol];
+      if (typeof av === 'string') return sortDir === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av);
+      return sortDir === 'asc' ? av - bv : bv - av;
+    });
+  }, [board, sortCol, sortDir]);
+
+  function handleSort(key) {
+    if (key === 'rank') return; // rank is derived — not sortable independently
+    if (key === sortCol) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+    else { setSortCol(key); setSortDir('desc'); }
+  }
+
+  const sortIndicator = (key) => {
+    if (key === sortCol) return sortDir === 'asc' ? ' ↑' : ' ↓';
+    return '';
+  };
 
   const MONTH_OPTS = Array.from({ length: 12 }, (_, i) => i + 1);
 
@@ -59,10 +91,11 @@ export default function CorpsOverview() {
         <StatCard label="Total Active Members"   value={monthly?.totalMembers}           color="#555" />
       </div>
 
-      {/* 12-month trend chart */}
+      {/* 12-month trend chart — selected month highlighted */}
       <div style={styles.section}>
         <h2 style={styles.h2}>12-Month Corps Trend</h2>
-        {tl ? <p style={styles.loading}>Loading…</p> : <CorpsTrendChart data={trend} />}
+        {tl ? <p style={styles.loading}>Loading…</p>
+            : <CorpsTrendChart data={trend} selectedYear={year} selectedMonth={month} />}
       </div>
 
       {/* Rides-per-member histogram */}
@@ -79,25 +112,39 @@ export default function CorpsOverview() {
             <table style={styles.table}>
               <thead>
                 <tr>
-                  {['Rank', 'Member', 'Riding Pts', 'Clock-Ins', 'Shifts', 'Total Pts'].map(h => (
-                    <th key={h} style={styles.th}>{h}</th>
+                  {COLUMNS.map(col => (
+                    <th
+                      key={col.key}
+                      style={{
+                        ...styles.th,
+                        textAlign: col.align,
+                        cursor: col.key === 'rank' ? 'default' : 'pointer',
+                        userSelect: 'none',
+                        whiteSpace: 'nowrap',
+                      }}
+                      onClick={() => handleSort(col.key)}
+                    >
+                      {col.label}{sortIndicator(col.key)}
+                    </th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {(board || []).map(row => (
+                {sortedBoard.map((row, i) => (
                   <tr key={row.id} style={styles.row}>
-                    <td style={{ ...styles.td, fontWeight: 700, color: row.rank <= 3 ? '#e63946' : '#333' }}>
-                      {row.rank <= 3 ? ['🥇','🥈','🥉'][row.rank - 1] : `#${row.rank}`}
+                    <td style={{ ...styles.td, fontWeight: 700, color: i < 3 && sortCol === 'totalPoints' && sortDir === 'desc' ? '#e63946' : '#333' }}>
+                      {i < 3 && sortCol === 'totalPoints' && sortDir === 'desc'
+                        ? ['🥇','🥈','🥉'][i]
+                        : `#${i + 1}`}
                     </td>
                     <td style={styles.td}>{row.name}</td>
-                    <td style={styles.td}>{row.ridingPoints}</td>
-                    <td style={styles.td}>{row.nonridingClockIns}</td>
-                    <td style={styles.td}>{row.shiftSignups}</td>
-                    <td style={{ ...styles.td, fontWeight: 700 }}>{row.totalPoints}</td>
+                    <td style={{ ...styles.td, textAlign: 'right' }}>{row.ridingPoints}</td>
+                    <td style={{ ...styles.td, textAlign: 'right' }}>{row.nonridingClockIns}</td>
+                    <td style={{ ...styles.td, textAlign: 'right' }}>{row.shiftSignups}</td>
+                    <td style={{ ...styles.td, textAlign: 'right', fontWeight: 700 }}>{row.totalPoints}</td>
                   </tr>
                 ))}
-                {(!board || board.length === 0) && (
+                {sortedBoard.length === 0 && (
                   <tr><td colSpan={6} style={{ textAlign: 'center', padding: 24, color: '#888' }}>No data for this period</td></tr>
                 )}
               </tbody>
@@ -110,14 +157,14 @@ export default function CorpsOverview() {
 }
 
 const styles = {
-  page:    { padding: '24px 32px', maxWidth: 1200, margin: '0 auto' },
-  header:  { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 },
-  h1:      { fontSize: 26, fontWeight: 800, color: '#1a3a6b', margin: 0 },
-  h2:      { fontSize: 18, fontWeight: 700, color: '#1a3a6b', marginBottom: 16 },
-  controls:{ display: 'flex', gap: 10 },
-  select:  { padding: '8px 12px', borderRadius: 6, border: '1px solid #ddd', fontSize: 14, background: '#fff' },
-  cards:   { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 16, marginBottom: 28 },
-  statCard:{ background: '#fff', borderRadius: 10, padding: '20px 16px', boxShadow: '0 2px 8px rgba(0,0,0,0.07)', textAlign: 'center' },
+  page:     { padding: '24px 32px', maxWidth: 1200, margin: '0 auto' },
+  header:   { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 },
+  h1:       { fontSize: 26, fontWeight: 800, color: '#1a3a6b', margin: 0 },
+  h2:       { fontSize: 18, fontWeight: 700, color: '#1a3a6b', marginBottom: 16 },
+  controls: { display: 'flex', gap: 10 },
+  select:   { padding: '8px 12px', borderRadius: 6, border: '1px solid #ddd', fontSize: 14, background: '#fff' },
+  cards:    { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 16, marginBottom: 28 },
+  statCard: { background: '#fff', borderRadius: 10, padding: '20px 16px', boxShadow: '0 2px 8px rgba(0,0,0,0.07)', textAlign: 'center' },
   statValue:{ fontSize: 32, fontWeight: 800, lineHeight: 1.1 },
   statLabel:{ fontSize: 12, color: '#666', marginTop: 6, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' },
   statSub:  { fontSize: 11, color: '#aaa', marginTop: 4 },
