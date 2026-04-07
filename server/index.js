@@ -4,10 +4,13 @@ const cors    = require('cors');
 const path    = require('path');
 const cron    = require('node-cron');
 
-const dataRoutes   = require('./routes/data');
-const emailRoutes  = require('./routes/email');
-const sheetsRoutes = require('./routes/sheets');
-const { syncDutyboard } = require('./services/sheetsService');
+const dataRoutes    = require('./routes/data');
+const emailRoutes   = require('./routes/email');
+const sheetsRoutes  = require('./routes/sheets');
+const reportsRoutes    = require('./routes/reports');
+const attendanceRoutes = require('./routes/attendance');
+const { syncDutyboard }       = require('./services/sheetsService');
+const { syncPersonnelTypes }  = require('./services/personnelSyncService');
 
 const app  = express();
 const PORT = process.env.PORT || 3001;
@@ -18,9 +21,11 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // ─── API Routes ────────────────────────────────────────────────────────────────
-app.use('/api/data',   dataRoutes);
-app.use('/api/email',  emailRoutes);
-app.use('/api/sheets', sheetsRoutes);
+app.use('/api/data',    dataRoutes);
+app.use('/api/email',   emailRoutes);
+app.use('/api/sheets',  sheetsRoutes);
+app.use('/api/reports',    reportsRoutes);
+app.use('/api/attendance', attendanceRoutes);
 
 // ─── Health check ──────────────────────────────────────────────────────────────
 app.get('/api/health', (req, res) => {
@@ -54,6 +59,9 @@ async function runSync(label = 'scheduled') {
 
 app.listen(PORT, async () => {
   console.log(`ASVAС Dashboard server running on http://localhost:${PORT}`);
+
+  // Sync personnel types from PERSONNEL sheets
+  await syncPersonnelTypes();
 
   // Sync once immediately on startup
   await runSync('startup');

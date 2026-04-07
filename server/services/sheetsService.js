@@ -197,11 +197,21 @@ async function syncDutyboard() {
     'Expected tabs named like "3/15-3/21". Check GOOGLE_SHEET_ID in .env.'
   );
 
-  const getOrCreateMember = db.prepare(`
-    INSERT INTO members (name) VALUES (?)
-    ON CONFLICT(name) DO UPDATE SET name = excluded.name
-    RETURNING id
-  `);
+  // Alias lookup — maps alternate spellings to canonical member IDs
+  const lookupAlias  = db.prepare('SELECT member_id FROM member_aliases WHERE alias = lower(?)');
+  const lookupExact  = db.prepare('SELECT id FROM members WHERE name = ?');
+  const insertMember = db.prepare('INSERT INTO members (name) VALUES (?) RETURNING id');
+
+  function getOrCreateMember(name) {
+    // 1. Check alias table (catches misspellings that were merged before)
+    const aliasRow = lookupAlias.get(name);
+    if (aliasRow) return { id: aliasRow.member_id };
+    // 2. Exact name match
+    const existing = lookupExact.get(name);
+    if (existing) return existing;
+    // 3. Create new member
+    return insertMember.get(name);
+  }
 
   const deleteTab = db.prepare(`
     DELETE FROM shift_signups WHERE shift_tab = ?
@@ -230,7 +240,7 @@ async function syncDutyboard() {
       db.transaction(() => {
         deleteTab.run(tabName);
         for (const s of signups) {
-          const member = getOrCreateMember.get(s.memberName);
+          const member = getOrCreateMember(s.memberName);
           if (member) {
             insertSignup.run(member.id, s.date, s.shiftTime, s.tabName);
           }
