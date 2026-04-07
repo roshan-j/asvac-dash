@@ -8,6 +8,7 @@
 
 const express = require('express');
 const multer  = require('multer');
+const XLSX    = require('xlsx');
 const db      = require('../db/database');
 const { parseAttendanceCSV } = require('../services/attendanceParser');
 
@@ -18,8 +19,18 @@ const upload  = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 
 router.post('/preview', upload.single('file'), (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
 
-  const csvText = req.file.buffer.toString('utf8');
   const filename = req.file.originalname;
+  const isXlsx   = /\.(xlsx|xls|ods)$/i.test(filename);
+
+  let csvText;
+  if (isXlsx) {
+    // Convert first sheet of workbook to CSV text
+    const wb    = XLSX.read(req.file.buffer, { type: 'buffer' });
+    const sheet = wb.Sheets[wb.SheetNames[0]];
+    csvText = XLSX.utils.sheet_to_csv(sheet);
+  } else {
+    csvText = req.file.buffer.toString('utf8');
+  }
 
   const result = parseAttendanceCSV(csvText, filename);
   if (result.error) return res.status(422).json({ error: result.error });

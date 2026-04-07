@@ -116,7 +116,7 @@ router.get('/monthly-print', (req, res) => {
       'Call Points (ESO)',
       'Schedule',
       'Event - Standby',
-      'Call Credit - Pingback',
+      'Call Credit - Pinpad',
       'Total Riding Points',
       'Meeting',
       'Training',

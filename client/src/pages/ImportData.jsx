@@ -26,7 +26,7 @@ export default function ImportData() {
       <div style={styles.section}>
         <h2 style={styles.h2}>Attendance Upload</h2>
         <p style={styles.attendanceDesc}>
-          Upload meeting or training attendance CSVs exported from the sign-in form.
+          Upload meeting or training attendance files (CSV or Excel) exported from the sign-in form.
           Three formats are supported: Tony's meeting export, Nisha's sign-in format, and Tony's training CME format.
           Names are fuzzy-matched to DB members — a preview shows matched/unmatched names before saving.
         </p>
