@@ -1,10 +1,13 @@
+import { useState } from 'react';
 import { useApi } from '../hooks/useApi';
 import { getImportHistory } from '../api/client';
 import FileUploader from '../components/Upload/FileUploader';
+import AttendanceUploadModal from '../components/AttendanceUploadModal';
 import { formatDate } from '../utils/format';
 
 export default function ImportData() {
   const { data: history, loading, refetch } = useApi(getImportHistory, []);
+  const [showAttendance, setShowAttendance] = useState(false);
 
   return (
     <div style={styles.page}>
@@ -18,6 +21,22 @@ export default function ImportData() {
       </div>
 
       <FileUploader onSuccess={refetch} />
+
+      {/* Attendance Upload */}
+      <div style={styles.section}>
+        <h2 style={styles.h2}>Attendance Upload</h2>
+        <p style={styles.attendanceDesc}>
+          Upload meeting or training attendance CSVs exported from the sign-in form.
+          Three formats are supported: Tony's meeting export, Nisha's sign-in format, and Tony's training CME format.
+          Names are fuzzy-matched to DB members — a preview shows matched/unmatched names before saving.
+        </p>
+        <button style={styles.attendanceBtn} onClick={() => setShowAttendance(true)}>
+          📋 Upload Attendance CSV
+        </button>
+        {showAttendance && (
+          <AttendanceUploadModal onClose={() => setShowAttendance(false)} />
+        )}
+      </div>
 
       {/* Import History */}
       <div style={styles.section}>
@@ -69,5 +88,7 @@ const styles = {
   th:        { background: '#1a3a6b', color: '#fff', padding: '10px 14px', textAlign: 'left', fontSize: 13 },
   row:       { borderBottom: '1px solid #f0f0f0' },
   td:        { padding: '10px 14px', fontSize: 14 },
-  typeBadge: { padding: '3px 10px', borderRadius: 99, fontSize: 12, fontWeight: 700 },
+  typeBadge:       { padding: '3px 10px', borderRadius: 99, fontSize: 12, fontWeight: 700 },
+  attendanceDesc:  { color: '#555', fontSize: 14, marginBottom: 16, lineHeight: 1.6 },
+  attendanceBtn:   { padding: '10px 22px', borderRadius: 7, border: 'none', background: '#1a3a6b', color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer' },
 };
