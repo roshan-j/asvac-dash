@@ -61,6 +61,26 @@ db.exec(`
     UNIQUE(member_id, shift_date, shift_time)   -- safe to re-sync
   );
 
+  -- Maps alternate / misspelled / old names → canonical member ID.
+  -- Checked by sheetsService before creating new members, preventing ghost re-creation.
+  CREATE TABLE IF NOT EXISTS member_aliases (
+    alias     TEXT    NOT NULL UNIQUE,   -- lowercased alternate name
+    member_id INTEGER NOT NULL REFERENCES members(id)
+  );
+
+  -- Tracks meeting / training attendance per member per month.
+  -- One entry per person per month per type; idempotent on re-upload.
+  CREATE TABLE IF NOT EXISTS attendance_events (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    member_id   INTEGER NOT NULL REFERENCES members(id),
+    year        INTEGER NOT NULL,
+    month       INTEGER NOT NULL,
+    type        TEXT    NOT NULL CHECK(type IN ('meeting','training')),
+    source_file TEXT,
+    imported_at TEXT    DEFAULT (datetime('now')),
+    UNIQUE(member_id, year, month, type)
+  );
+
   CREATE TABLE IF NOT EXISTS email_logs (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     member_id   INTEGER REFERENCES members(id),

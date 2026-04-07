@@ -3,6 +3,7 @@ import { useApi } from '../hooks/useApi';
 import { getCorpsTrend, getCorpsMonth, getLeaderboard, getPeriods } from '../api/client';
 import CorpsTrendChart from '../components/Charts/CorpsTrendChart';
 import RidesHistogramChart from '../components/Charts/RidesHistogramChart';
+import AttendanceUploadModal from '../components/AttendanceUploadModal';
 import { formatPeriod } from '../utils/format';
 
 function StatCard({ label, value, sub, color = '#1a3a6b' }) {
@@ -25,14 +26,38 @@ const COLUMNS = [
   { key: 'totalPoints',      label: 'Total Pts',  align: 'right' },
 ];
 
+const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+
 export default function CorpsOverview() {
   const now = new Date();
-  const [year,    setYear]    = useState(now.getFullYear());
-  const [month,   setMonth]   = useState(now.getMonth() + 1);
-  const [sortCol, setSortCol] = useState('totalPoints');
-  const [sortDir, setSortDir] = useState('desc');
+  const [year,        setYear]        = useState(now.getFullYear());
+  const [month,       setMonth]       = useState(now.getMonth() + 1);
+  const [sortCol,     setSortCol]     = useState('totalPoints');
+  const [sortDir,     setSortDir]     = useState('desc');
+  const [downloading,   setDownloading]   = useState(false);
+  const [showAttendance, setShowAttendance] = useState(false);
 
-  const { data: trend,   loading: tl } = useApi(getCorpsTrend, [12], []);
+  async function handleDownload() {
+    setDownloading(true);
+    try {
+      const resp = await fetch(`${API_BASE}/api/reports/monthly-print?year=${year}&month=${month}&adultOnly=1`);
+      if (!resp.ok) throw new Error(await resp.text());
+      const blob = await resp.blob();
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement('a');
+      const monthName = new Date(year, month - 1, 1).toLocaleString('en-US', { month: 'long' });
+      a.href     = url;
+      a.download = `ASVAC_${monthName}_${year}.xlsx`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      alert('Download failed: ' + err.message);
+    } finally {
+      setDownloading(false);
+    }
+  }
+
+  const { data: trend,   loading: tl } = useApi(getCorpsTrend, [24], []);
   const { data: monthly, loading: ml } = useApi(getCorpsMonth,  [year, month], [year, month]);
   const { data: board,   loading: bl } = useApi(getLeaderboard, [year, month], [year, month]);
 
@@ -74,6 +99,21 @@ export default function CorpsOverview() {
               <option key={y} value={y}>{y}</option>
             ))}
           </select>
+          <button
+            onClick={handleDownload}
+            disabled={downloading}
+            style={styles.downloadBtn}
+            title={`Download ${new Date(year, month-1).toLocaleString('en-US', { month: 'long' })} ${year} report`}
+          >
+            {downloading ? '⏳' : '📥'} {downloading ? 'Downloading…' : 'Download Sheet'}
+          </button>
+          <button
+            onClick={() => setShowAttendance(true)}
+            style={{ ...styles.downloadBtn, background: '#2a6b3a' }}
+            title="Upload meeting or training attendance CSV"
+          >
+            📋 Upload Attendance
+          </button>
         </div>
       </div>
 
@@ -153,6 +193,10 @@ export default function CorpsOverview() {
         )}
       </div>
     </div>
+
+    {showAttendance && (
+      <AttendanceUploadModal onClose={() => setShowAttendance(false)} />
+    )}
   );
 }
 
@@ -161,8 +205,9 @@ const styles = {
   header:   { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 },
   h1:       { fontSize: 26, fontWeight: 800, color: '#1a3a6b', margin: 0 },
   h2:       { fontSize: 18, fontWeight: 700, color: '#1a3a6b', marginBottom: 16 },
-  controls: { display: 'flex', gap: 10 },
-  select:   { padding: '8px 12px', borderRadius: 6, border: '1px solid #ddd', fontSize: 14, background: '#fff' },
+  controls:     { display: 'flex', gap: 10, alignItems: 'center' },
+  select:       { padding: '8px 12px', borderRadius: 6, border: '1px solid #ddd', fontSize: 14, background: '#fff' },
+  downloadBtn:  { padding: '8px 14px', borderRadius: 6, border: 'none', background: '#1a3a6b', color: '#fff', fontSize: 14, cursor: 'pointer', fontWeight: 600, whiteSpace: 'nowrap' },
   cards:    { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 16, marginBottom: 28 },
   statCard: { background: '#fff', borderRadius: 10, padding: '20px 16px', boxShadow: '0 2px 8px rgba(0,0,0,0.07)', textAlign: 'center' },
   statValue:{ fontSize: 32, fontWeight: 800, lineHeight: 1.1 },
