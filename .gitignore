@@ -10,8 +10,10 @@ client/dist/
 .env
 server/.env
 
-# Google service account credentials — NEVER commit
+# Google credentials — NEVER commit
 credentials.json
+server/.google-oauth-tokens.json
+server/service-account.json
 
 # Database
 data/

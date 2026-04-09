@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useApi } from '../hooks/useApi';
 import { getCorpsTrend, getCorpsMonth, getLeaderboard, getPeriods } from '../api/client';
 import CorpsTrendChart from '../components/Charts/CorpsTrendChart';
@@ -51,25 +51,48 @@ export default function CorpsOverview() {
   const [month,       setMonth]   = useState(now.getMonth() + 1);
   const [sortCol,     setSortCol] = useState('totalPoints');
   const [sortDir,     setSortDir] = useState('desc');
-  const [downloading, setDownloading] = useState(false);
+  const [openingSheets, setOpeningSheets] = useState(false);
+  const [sheetsToast,   setSheetsToast]   = useState(''); // '' | 'connected' | 'error'
 
-  async function handleDownload() {
-    setDownloading(true);
+  // Detect OAuth callback redirect — show contextual toast
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    let timer;
+    if (params.has('sheetsAuthDone')) {
+      setSheetsToast('connected');
+      window.history.replaceState({}, '', window.location.pathname);
+      timer = setTimeout(() => setSheetsToast(''), 8000);
+    } else if (params.has('sheetsAuthError')) {
+      setSheetsToast('error');
+      window.history.replaceState({}, '', window.location.pathname);
+      timer = setTimeout(() => setSheetsToast(''), 6000);
+    }
+    return () => clearTimeout(timer);
+  }, []);
+
+  async function handleOpenInSheets() {
+    setOpeningSheets(true);
     try {
-      const resp = await fetch(`${API_BASE}/api/reports/monthly-print?year=${year}&month=${month}&adultOnly=1`);
-      if (!resp.ok) throw new Error(await resp.text());
-      const blob = await resp.blob();
-      const url  = URL.createObjectURL(blob);
-      const a    = document.createElement('a');
-      const monthName = new Date(year, month - 1, 1).toLocaleString('en-US', { month: 'long' });
-      a.href     = url;
-      a.download = `ASVAC_${monthName}_${year}.xlsx`;
-      a.click();
-      URL.revokeObjectURL(url);
+      const resp = await fetch(
+        `${API_BASE}/api/reports/open-in-sheets?year=${year}&month=${month}&adultOnly=1`,
+        { method: 'POST' }
+      );
+      const data = await resp.json().catch(() => ({}));
+
+      if (resp.status === 401 && data.needsAuth) {
+        // First-time (or re-auth): open consent screen in new tab
+        window.open(data.authUrl, '_blank', 'noopener');
+        setSheetsToast('authorizing');
+        setTimeout(() => setSheetsToast(''), 12000);
+        return;
+      }
+      if (!resp.ok) throw new Error(data.error || resp.statusText);
+
+      window.open(data.url, '_blank', 'noopener');
     } catch (err) {
-      alert('Download failed: ' + err.message);
+      alert('Could not open in Sheets: ' + err.message);
     } finally {
-      setDownloading(false);
+      setOpeningSheets(false);
     }
   }
 
@@ -127,15 +150,28 @@ export default function CorpsOverview() {
             ))}
           </select>
           <button
-            onClick={handleDownload}
-            disabled={downloading}
-            style={styles.downloadBtn}
-            title={`Download ${new Date(year, month-1).toLocaleString('en-US', { month: 'long' })} ${year} report`}
+            onClick={handleOpenInSheets}
+            disabled={openingSheets}
+            style={styles.sheetsBtn}
+            title="Upload directly to Google Sheets"
           >
-            {downloading ? '⏳' : '📥'} {downloading ? 'Downloading…' : 'Download Sheet'}
+            {openingSheets ? '⏳' : '📊'} {openingSheets ? 'Opening…' : 'Open in Sheets'}
           </button>
         </div>
       </div>
+
+      {/* OAuth toast banner */}
+      {sheetsToast && (() => {
+        const t = { authorizing: { bg: '#fff3cd', border: '#ffc107', color: '#856404', msg: <>🔑 Google sign-in opened — complete it, then click <strong>Open in Sheets</strong> again.</> },
+                    connected:   { bg: '#e6f4ea', border: '#34a853', color: '#1a5c33', msg: <>✅ Google Drive connected! Click <strong>Open in Sheets</strong> to continue.</> },
+                    error:       { bg: '#fdecea', border: '#ea4335', color: '#7a1c11', msg: <>❌ Google sign-in failed or was cancelled. Try again.</> } }[sheetsToast];
+        return t ? (
+          <div style={{ ...styles.toast, background: t.bg, borderColor: t.border, color: t.color }}>
+            <span>{t.msg}</span>
+            <button style={styles.toastClose} onClick={() => setSheetsToast('')}>✕</button>
+          </div>
+        ) : null;
+      })()}
 
       {/* Monthly stat cards */}
       <div style={styles.cards}>
@@ -271,7 +307,9 @@ const styles = {
   h2:       { fontSize: 18, fontWeight: 700, color: '#1a3a6b', marginBottom: 16 },
   controls:     { display: 'flex', gap: 10, alignItems: 'center' },
   select:       { padding: '8px 12px', borderRadius: 6, border: '1px solid #ddd', fontSize: 14, background: '#fff' },
-  downloadBtn:  { padding: '8px 14px', borderRadius: 6, border: 'none', background: '#1a3a6b', color: '#fff', fontSize: 14, cursor: 'pointer', fontWeight: 600, whiteSpace: 'nowrap' },
+  sheetsBtn:    { padding: '8px 14px', borderRadius: 6, border: '2px solid #1a7f4b', background: '#fff', color: '#1a7f4b', fontSize: 14, cursor: 'pointer', fontWeight: 600, whiteSpace: 'nowrap' },
+  toast:        { display: 'flex', alignItems: 'center', justifyContent: 'space-between', border: '1px solid', borderRadius: 8, padding: '10px 16px', fontSize: 13, marginBottom: 12 },
+  toastClose:   { background: 'none', border: 'none', cursor: 'pointer', fontSize: 16, lineHeight: 1, padding: '0 4px', marginLeft: 12 },
   cards:    { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 16, marginBottom: 28, overflow: 'visible' },
   statCard: { background: '#fff', borderRadius: 10, padding: '20px 16px', boxShadow: '0 2px 8px rgba(0,0,0,0.07)', textAlign: 'center', cursor: 'default' },
   statValue:{ fontSize: 32, fontWeight: 800, lineHeight: 1.1 },

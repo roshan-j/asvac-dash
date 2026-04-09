@@ -4,13 +4,16 @@ const cors    = require('cors');
 const path    = require('path');
 const cron    = require('node-cron');
 
-const dataRoutes    = require('./routes/data');
-const emailRoutes   = require('./routes/email');
-const sheetsRoutes  = require('./routes/sheets');
+const dataRoutes       = require('./routes/data');
+const emailRoutes      = require('./routes/email');
+const sheetsRoutes     = require('./routes/sheets');
 const reportsRoutes    = require('./routes/reports');
 const attendanceRoutes = require('./routes/attendance');
+const { router: authRoutes } = require('./routes/auth');
 const { syncDutyboard }       = require('./services/sheetsService');
 const { syncPersonnelTypes }  = require('./services/personnelSyncService');
+const { seedAll }             = require('./services/officerSeedService');
+const { syncStandbyEvents }   = require('./services/standbySyncService');
 
 const app  = express();
 const PORT = process.env.PORT || 3001;
@@ -21,11 +24,12 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // ─── API Routes ────────────────────────────────────────────────────────────────
-app.use('/api/data',    dataRoutes);
-app.use('/api/email',   emailRoutes);
-app.use('/api/sheets',  sheetsRoutes);
+app.use('/api/data',       dataRoutes);
+app.use('/api/email',      emailRoutes);
+app.use('/api/sheets',     sheetsRoutes);
 app.use('/api/reports',    reportsRoutes);
 app.use('/api/attendance', attendanceRoutes);
+app.use('/api/auth',       authRoutes);
 
 // ─── Health check ──────────────────────────────────────────────────────────────
 app.get('/api/health', (req, res) => {
@@ -60,8 +64,19 @@ async function runSync(label = 'scheduled') {
 app.listen(PORT, async () => {
   console.log(`ASVAС Dashboard server running on http://localhost:${PORT}`);
 
+  // Seed officer credits, missing members, and one-off credits (all idempotent)
+  seedAll();
+
   // Sync personnel types from PERSONNEL sheets
   await syncPersonnelTypes();
+
+  // Sync standby/event points from events sheet
+  try {
+    const sbResult = await syncStandbyEvents();
+    console.log(`[standby:startup] ${sbResult.synced} event records synced`);
+  } catch (err) {
+    console.error('[standby:startup] Sync failed:', err.message);
+  }
 
   // Sync once immediately on startup
   await runSync('startup');

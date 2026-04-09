@@ -136,11 +136,13 @@ function buildReport(year, month, adultOnly = false) {
     ORDER BY m.name
   `).all(start,end,start,end,start,end,year,month,year,month);
 
-  const headers = ['','Call Points (ESO)','Schedule','Event - Standby','Call Credit - Pinpad','Total Riding Points','Meeting','Training','Totals'];
+  const headers = ['Adult Member','Call Points (ESO)','Schedule','Event - Standby','Call Credit - Pin Pad','Total Riding Points','Meeting','Training','Totals'];
   const dataRows = rows.map(r => {
     const totalRiding = r.callPts + r.schedule + r.callCredit;
-    const totals      = totalRiding + r.meetingCnt + r.trainingCnt;
-    return [r.name, r.callPts||'', r.schedule||'', '', r.callCredit||'', totalRiding||'', r.meetingCnt||'', r.trainingCnt||'', totals||''];
+    const meeting     = r.meetingCnt  * 2;   // 2 pts per meeting
+    const training    = r.trainingCnt * 2;   // 2 pts per training
+    const totals      = totalRiding + meeting + training;
+    return [r.name, r.callPts||'', r.schedule||'', '', r.callCredit||'', totalRiding||'', meeting||'', training||'', totals||''];
   });
 
   const ws = XLSX.utils.aoa_to_sheet([headers, ...dataRows]);
@@ -155,45 +157,46 @@ function buildReport(year, month, adultOnly = false) {
 
 test('headers contain correct column names', () => {
   const [headers] = buildReport(2026, 2);
-  assert.equal(headers[4], 'Call Credit - Pinpad',    'col 4 label');
+  assert.equal(headers[0], 'Adult Member',             'col 0 label');
+  assert.equal(headers[4], 'Call Credit - Pin Pad',    'col 4 label');
   assert.equal(headers[6], 'Meeting',                  'col 6 label');
   assert.equal(headers[7], 'Training',                 'col 7 label');
   assert.equal(headers[8], 'Totals',                   'col 8 label');
 });
 
-test('"Call Credit - Pingback" label is NOT present', () => {
+test('"Call Credit - Pingback" and "Pinpad" labels are NOT present', () => {
   const [headers] = buildReport(2026, 2);
   assert.ok(!headers.includes('Call Credit - Pingback'), 'old typo label must not appear');
 });
 
-test('Alice: 4 riding pts + meeting attendance → Meeting=1, Totals=5', () => {
+test('Alice: 4 riding pts + meeting attendance → Meeting=2, Totals=6', () => {
   const rows = buildReport(2026, 2);
   const alice = rows.find(r => r[0] === 'Alice Smith');
   assert.ok(alice, 'Alice should be in report');
   assert.equal(alice[1], 4, 'Call Points should be 4');
-  assert.equal(alice[6], 1, 'Meeting should be 1');
+  assert.equal(alice[6], 2, 'Meeting should be 2 (1 attendance × 2 pts)');
   assert.equal(alice[7], '', 'Training should be empty');
-  assert.equal(alice[8], 5, 'Totals should be 5 (4 riding + 1 meeting)');
+  assert.equal(alice[8], 6, 'Totals should be 6 (4 riding + 2 meeting)');
 });
 
-test('Bob: 1 shift + training attendance → Training=1, Totals=2', () => {
+test('Bob: 1 shift + training attendance → Training=2, Totals=3', () => {
   const rows = buildReport(2026, 2);
   const bob = rows.find(r => r[0] === 'Bob Jones');
   assert.ok(bob, 'Bob should be in report');
   assert.equal(bob[2], 1,  'Schedule should be 1');
   assert.equal(bob[6], '',  'Meeting should be empty');
-  assert.equal(bob[7], 1,  'Training should be 1');
-  assert.equal(bob[8], 2,  'Totals should be 2 (1 shift + 1 training)');
+  assert.equal(bob[7], 2,  'Training should be 2 (1 attendance × 2 pts)');
+  assert.equal(bob[8], 3,  'Totals should be 3 (1 shift + 2 training)');
 });
 
-test('Carol: attendance-only member appears in report with Meeting=1, Training=1, Totals=2', () => {
+test('Carol: attendance-only member appears in report with Meeting=2, Training=2, Totals=4', () => {
   const rows = buildReport(2026, 2);
   const carol = rows.find(r => r[0] === 'Carol Lee');
   assert.ok(carol, 'Carol (attendance-only) must appear in report');
   assert.equal(carol[1], '', 'No riding points');
-  assert.equal(carol[6], 1,  'Meeting = 1');
-  assert.equal(carol[7], 1,  'Training = 1');
-  assert.equal(carol[8], 2,  'Totals = 2');
+  assert.equal(carol[6], 2,  'Meeting = 2 (1 attendance × 2 pts)');
+  assert.equal(carol[7], 2,  'Training = 2 (1 attendance × 2 pts)');
+  assert.equal(carol[8], 4,  'Totals = 4 (2 meeting + 2 training)');
 });
 
 test('report includes all 3 members (including attendance-only)', () => {

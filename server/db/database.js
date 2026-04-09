@@ -89,6 +89,26 @@ db.exec(`
     success     INTEGER DEFAULT 1,
     error_msg   TEXT
   );
+
+  -- Fixed monthly officer credit. points_per_month applied for every month of the year.
+  CREATE TABLE IF NOT EXISTS officers (
+    member_id        INTEGER NOT NULL REFERENCES members(id),
+    year             INTEGER NOT NULL,
+    points_per_month INTEGER NOT NULL DEFAULT 2,
+    PRIMARY KEY (member_id, year)
+  );
+
+  -- Event / standby points synced from the ASVAC Adult Events Points Google Sheet.
+  -- One row per member per event occurrence.
+  CREATE TABLE IF NOT EXISTS standby_events (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    member_id   INTEGER NOT NULL REFERENCES members(id),
+    event_date  TEXT    NOT NULL,
+    event_name  TEXT    NOT NULL,
+    points      INTEGER NOT NULL DEFAULT 1,
+    synced_at   TEXT    DEFAULT (datetime('now')),
+    UNIQUE(member_id, event_date, event_name)
+  );
 `);
 
 module.exports = db;

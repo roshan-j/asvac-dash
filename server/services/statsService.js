@@ -161,7 +161,9 @@ function getLeaderboard(year, month) {
       m.name,
       COALESCE(r.points, 0)    AS ridingPoints,
       COALESCE(nr.points, 0)   AS nonridingPoints,
-      COALESCE(r.points, 0) + COALESCE(nr.points, 0) AS totalPoints,
+      COALESCE(r.points, 0) + COALESCE(nr.points, 0)
+        + COALESCE(mt.cnt, 0) * 2
+        + COALESCE(tr.cnt, 0) * 2 AS totalPoints,
       COALESCE(nr.clockins, 0) AS nonridingClockIns,
       COALESCE(s.signups, 0)   AS shiftSignups,
       COALESCE(mt.cnt, 0)      AS meetingAttendance,
