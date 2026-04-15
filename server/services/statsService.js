@@ -10,6 +10,31 @@
 
 const db = require('../db/database');
 
+// ─── Shift-response multiplier ─────────────────────────────────────────────────
+//
+// When a member responds to a call that falls within a shift window they signed
+// up for, their call points earn a 1.5× bonus.  Requires call_time to be stored
+// (populated by esoParser when re-importing existing data or on new imports).
+//
+// Alias assumption: the riding_points table is aliased `r` in every query below.
+
+const SHIFT_BONUS = 1.5;
+
+// Inline SQL expression that returns multiplied points for a single riding_points row.
+const MULTIPLIED_PTS = `
+  CASE
+    WHEN r.call_time IS NOT NULL AND EXISTS (
+      SELECT 1 FROM shift_signups ss
+      WHERE ss.member_id = r.member_id
+        AND ss.shift_date = r.call_date
+        AND CAST(REPLACE(r.call_time, ':', '') AS INTEGER)
+            >= CAST(SUBSTR(ss.shift_time, 1, 4) AS INTEGER)
+        AND CAST(REPLACE(r.call_time, ':', '') AS INTEGER)
+            <  CAST(SUBSTR(ss.shift_time, 6, 4) AS INTEGER)
+    ) THEN r.points * ${SHIFT_BONUS}
+    ELSE r.points
+  END`.trim();
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function monthRange(year, month) {
@@ -36,9 +61,9 @@ function getMemberMonthStats(memberId, year, month) {
   const { start, end } = monthRange(year, month);
 
   const riding = db.prepare(`
-    SELECT COUNT(*) AS count, SUM(points) AS total
-    FROM riding_points
-    WHERE member_id = ? AND call_date BETWEEN ? AND ?
+    SELECT COUNT(*) AS count, SUM(${MULTIPLIED_PTS}) AS total
+    FROM riding_points r
+    WHERE r.member_id = ? AND r.call_date BETWEEN ? AND ?
   `).get(memberId, start, end);
 
   const nonriding = db.prepare(`
@@ -170,9 +195,9 @@ function getLeaderboard(year, month) {
       COALESCE(tr.cnt, 0)      AS trainingAttendance
     FROM members m
     LEFT JOIN (
-      SELECT member_id, SUM(points) AS points
-      FROM riding_points WHERE call_date BETWEEN ? AND ?
-      GROUP BY member_id
+      SELECT r.member_id, SUM(${MULTIPLIED_PTS}) AS points
+      FROM riding_points r WHERE r.call_date BETWEEN ? AND ?
+      GROUP BY r.member_id
     ) r ON r.member_id = m.id
     LEFT JOIN (
       SELECT member_id, SUM(points) AS points, COUNT(*) AS clockins

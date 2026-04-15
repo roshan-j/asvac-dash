@@ -12,6 +12,22 @@ const { google } = require('googleapis');
 
 const { TOKENS_PATH, buildOAuth2Client } = require('./auth');
 
+// Shift-response multiplier — same logic as statsService.js
+const SHIFT_BONUS = 1.5;
+const MULTIPLIED_PTS = `
+  CASE
+    WHEN r.call_time IS NOT NULL AND EXISTS (
+      SELECT 1 FROM shift_signups ss
+      WHERE ss.member_id = r.member_id
+        AND ss.shift_date = r.call_date
+        AND CAST(REPLACE(r.call_time, ':', '') AS INTEGER)
+            >= CAST(SUBSTR(ss.shift_time, 1, 4) AS INTEGER)
+        AND CAST(REPLACE(r.call_time, ':', '') AS INTEGER)
+            <  CAST(SUBSTR(ss.shift_time, 6, 4) AS INTEGER)
+    ) THEN r.points * ${SHIFT_BONUS}
+    ELSE r.points
+  END`.trim();
+
 const AUTH_URL = `${process.env.SERVER_ORIGIN || 'http://localhost:3001'}/api/auth/google`;
 const needsAuthResponse = () => ({ needsAuth: true, authUrl: AUTH_URL });
 
@@ -55,9 +71,9 @@ async function buildMonthlyWorkbook(year, month, adultOnly = true) {
       COALESCE(try2.training_ytd,   0) AS trainingCntYtd
     FROM members m
     LEFT JOIN (
-      SELECT member_id, SUM(points) AS call_pts
-      FROM riding_points WHERE call_date BETWEEN ? AND ?
-      GROUP BY member_id
+      SELECT r.member_id, SUM(${MULTIPLIED_PTS}) AS call_pts
+      FROM riding_points r WHERE r.call_date BETWEEN ? AND ?
+      GROUP BY r.member_id
     ) r ON r.member_id = m.id
     LEFT JOIN (
       SELECT member_id,
@@ -87,9 +103,9 @@ async function buildMonthlyWorkbook(year, month, adultOnly = true) {
     ) tr ON tr.member_id = m.id
     LEFT JOIN officers of ON of.member_id = m.id AND of.year = ?
     LEFT JOIN (
-      SELECT member_id, SUM(points) AS call_pts_ytd
-      FROM riding_points WHERE call_date BETWEEN ? AND ?
-      GROUP BY member_id
+      SELECT r.member_id, SUM(${MULTIPLIED_PTS}) AS call_pts_ytd
+      FROM riding_points r WHERE r.call_date BETWEEN ? AND ?
+      GROUP BY r.member_id
     ) ry ON ry.member_id = m.id
     LEFT JOIN (
       SELECT member_id,

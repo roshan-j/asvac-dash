@@ -111,4 +111,15 @@ db.exec(`
   );
 `);
 
+// ─── Migrations ───────────────────────────────────────────────────────────────
+
+// v2: store call time so shift-response multiplier can be applied
+{
+  const cols = db.pragma('table_info(riding_points)');
+  if (!cols.some(c => c.name === 'call_time')) {
+    db.exec('ALTER TABLE riding_points ADD COLUMN call_time TEXT');
+    console.log('[db] migrated: added call_time column to riding_points');
+  }
+}
+
 module.exports = db;

@@ -63,6 +63,16 @@ function normalizeName(raw) {
 // ─── Date parsing ──────────────────────────────────────────────────────────────
 
 /**
+ * Parse "MM/DD/YYYY HH:MM" → "HH:MM" (24-hour).
+ * Returns null when no time component is present.
+ */
+function parseCallTime(raw) {
+  if (!raw || raw instanceof Date) return null;
+  const match = String(raw).trim().match(/\d{1,2}\/\d{1,2}\/\d{4}\s+(\d{2}:\d{2})/);
+  return match ? match[1] : null;
+}
+
+/**
  * Parse "MM/DD/YYYY HH:MM" (or just "MM/DD/YYYY") → "YYYY-MM-DD"
  * Also handles ISO dates and Excel serial numbers.
  */
@@ -146,6 +156,7 @@ function parseRows(rows) {
     const rawName = row[mbCol];
 
     const callDate   = parseCallDate(rawDate);
+    const callTime   = parseCallTime(rawDate);   // "HH:MM" or null
     const memberName = normalizeName(rawName);
     if (!callDate || !memberName) continue;
 
@@ -155,7 +166,7 @@ function parseRows(rows) {
       : String(rawDate || '').trim();
 
     if (!callKey) continue;
-    records.push({ callDate, callKey, memberName });
+    records.push({ callDate, callTime, callKey, memberName });
   }
   return records;
 }
@@ -195,11 +206,13 @@ function importEsoData(buffer, filename, batchId) {
     RETURNING id
   `);
 
-  // callKey is the raw timestamp string — uniquely identifies a call
+  // On re-import we backfill call_time without touching points or import_batch.
   const insertPoint = db.prepare(`
-    INSERT OR IGNORE INTO riding_points
-      (member_id, call_date, call_number, call_type, points, import_batch)
-    VALUES (?, ?, ?, NULL, ?, ?)
+    INSERT INTO riding_points
+      (member_id, call_date, call_number, call_type, points, import_batch, call_time)
+    VALUES (?, ?, ?, NULL, ?, ?, ?)
+    ON CONFLICT(member_id, call_date, call_number) DO UPDATE SET
+      call_time = excluded.call_time
   `);
 
   let inserted = 0, skipped = 0;
@@ -219,7 +232,8 @@ function importEsoData(buffer, filename, batchId) {
         rec.callDate,
         rec.callKey,      // stored as call_number for deduplication
         POINTS_PER_CALL,
-        batchId
+        batchId,
+        rec.callTime      // "HH:MM" or null — enables shift-response multiplier
       );
 
       if (result.changes > 0) inserted++;
