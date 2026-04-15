@@ -11,12 +11,14 @@ const UPLOAD_TYPES = [
     color:  '#1a3a6b',
   },
   {
-    key:    'clockin',
-    label:  'Clock-In / Non-Riding',
-    desc:   'CSV or Excel export from your clock-in system (meetings, training, maintenance, etc.)',
-    accept: '.csv,.xlsx,.xls',
-    fn:     uploadClockin,
-    color:  '#4a90d9',
+    key:      'clockin',
+    label:    'Clock-In / Non-Riding',
+    desc:     'CSV or Excel export from your clock-in system (meetings, training, maintenance, etc.)',
+    accept:   '.csv,.xlsx,.xls',
+    fn:       uploadClockin,
+    color:    '#4a90d9',
+    link:     'https://www.mytimestation.com/Account_Reports.asp?ReportID=24&Report_StartDate=01%2F25%2F2026&Report_EndDate=03%2F03%2F2026&Report_PageBreaks=1&Report_EmployeeID=-1&Report_DepartmentID=-1&Report_PunchStationID=-1&ReportName=Attendance+Counter&ID=24&UTCOffset=-300&TimeStamp=20260303_1107&Submit=Run+Report',
+    linkText: 'Employee Activity Report',
   },
 ];
 
@@ -46,6 +48,11 @@ function UploadCard({ type }) {
     <div style={{ ...styles.card, borderTop: `4px solid ${type.color}` }}>
       <h3 style={{ ...styles.cardTitle, color: type.color }}>{type.label}</h3>
       <p style={styles.cardDesc}>{type.desc}</p>
+      {type.link && (
+        <p style={{ ...styles.cardDesc, marginTop: 4 }}>
+          Source: <a href={type.link} target="_blank" rel="noreferrer" style={{ color: type.color }}>{type.linkText}</a>
+        </p>
+      )}
 
       <button
         style={{ ...styles.btn, background: type.color }}

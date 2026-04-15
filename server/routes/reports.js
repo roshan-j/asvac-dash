@@ -77,7 +77,7 @@ async function buildMonthlyWorkbook(year, month, adultOnly = true) {
     ) r ON r.member_id = m.id
     LEFT JOIN (
       SELECT member_id,
-        SUM((CAST(SUBSTR(shift_time,6,4) AS INTEGER) - CAST(SUBSTR(shift_time,1,4) AS INTEGER))/200) AS schedule
+        SUM((CAST(SUBSTR(shift_time,6,4) AS INTEGER) - CAST(SUBSTR(shift_time,1,4) AS INTEGER))/400.0) AS schedule
       FROM shift_signups WHERE shift_date BETWEEN ? AND ?
       GROUP BY member_id
     ) s ON s.member_id = m.id
@@ -109,7 +109,7 @@ async function buildMonthlyWorkbook(year, month, adultOnly = true) {
     ) ry ON ry.member_id = m.id
     LEFT JOIN (
       SELECT member_id,
-        SUM((CAST(SUBSTR(shift_time,6,4) AS INTEGER) - CAST(SUBSTR(shift_time,1,4) AS INTEGER))/200) AS schedule_ytd
+        SUM((CAST(SUBSTR(shift_time,6,4) AS INTEGER) - CAST(SUBSTR(shift_time,1,4) AS INTEGER))/400.0) AS schedule_ytd
       FROM shift_signups WHERE shift_date BETWEEN ? AND ?
       GROUP BY member_id
     ) sy ON sy.member_id = m.id
