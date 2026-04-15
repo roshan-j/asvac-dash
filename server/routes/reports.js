@@ -157,20 +157,21 @@ async function buildMonthlyWorkbook(year, month, adultOnly = true) {
     const schedule       = row.schedule;
     const eventStby      = row.eventStby;
     const callCredit     = row.callCredit;
-    const totalRiding    = callPts + schedule + eventStby + callCredit;
+    const totalRiding    = Math.round(callPts + schedule + eventStby + callCredit);
     const meeting        = row.meetingCnt  * 2;
     const training       = row.trainingCnt * 2;
     const officer        = row.officerPts;
-    const totals         = totalRiding + meeting + training + officer;
+    const totals         = Math.round(totalRiding + meeting + training + officer);
     // YTD columns — structured to match sample report (D–H) + 95 to Qualify
-    const meetingYtd   = row.meetingCntYtd  * 2;                                  // cap 24
-    const trainingYtd  = row.trainingCntYtd * 2;                                  // cap 24
-    const ridingYtd    = row.callPtsYtd + row.scheduleYtd + row.eventStbyYtd;    // cap 80
-    const officerYtd   = officer * month;                                          // cap 25
-    const otherYtd     = row.callCreditYtd;                                       // cap 10
-    const qualifyScore = Math.min(meetingYtd, 24) + Math.min(trainingYtd, 24)
+    const meetingYtd   = row.meetingCntYtd  * 2;                                          // cap 24
+    const trainingYtd  = row.trainingCntYtd * 2;                                          // cap 24
+    const ridingYtd    = Math.round(row.callPtsYtd + row.scheduleYtd + row.eventStbyYtd); // cap 80
+    const officerYtd   = officer * month;                                                  // cap 25
+    const otherYtd     = row.callCreditYtd;                                               // cap 10
+    const qualifyScore = Math.round(
+                         Math.min(meetingYtd, 24) + Math.min(trainingYtd, 24)
                        + Math.min(ridingYtd, 80)  + Math.min(officerYtd, 25)
-                       + Math.min(otherYtd, 10);
+                       + Math.min(otherYtd, 10));
     return {
       displayName, callPts, schedule, eventStby, callCredit, totalRiding,
       meeting, training, officer, totals,
@@ -220,7 +221,8 @@ async function buildMonthlyWorkbook(year, month, adultOnly = true) {
   const GREEN_EVEN= 'FFE8F4EE';  // even data rows, YTD cols
   const GREEN_ODD = 'FFF5FAF7';  // odd data rows, YTD cols (slight tint)
   const SPACER    = 'FFD8D8D8';
-  const HIDE_ZERO = '#,##0.##;-#,##0.##;;@'; // blank for zero; up to 2 decimals (trailing zeros hidden)
+  const HIDE_ZERO = '#,##0;-#,##0;;@';   // blank for zero, integer display
+  const HALF_PT   = '#,##0.#;-#,##0.#;;@'; // blank for zero, one decimal (Schedule col only)
 
   const fill = argb => ({ type: 'pattern', pattern: 'solid', fgColor: { argb } });
   const fnt  = (bold, argb = 'FF1A1A2E', size = 11) =>
@@ -285,6 +287,9 @@ async function buildMonthlyWorkbook(year, month, adultOnly = true) {
         cell.numFmt    = HIDE_ZERO;
       }
     });
+
+    // Column C (Schedule) — only col that can have 0.5 increments
+    row.getCell(3).numFmt = HALF_PT;
 
     // Formula: F = Total Riding
     const F = row.getCell(6);
