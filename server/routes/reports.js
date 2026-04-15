@@ -222,7 +222,7 @@ async function buildMonthlyWorkbook(year, month, adultOnly = true) {
   const GREEN_ODD = 'FFF5FAF7';  // odd data rows, YTD cols (slight tint)
   const SPACER    = 'FFD8D8D8';
   const HIDE_ZERO = '#,##0;-#,##0;;@';   // blank for zero, integer display
-  const HALF_PT   = '#,##0.#;-#,##0.#;;@'; // blank for zero, one decimal (Schedule col only)
+  const HALF_PT   = '#,##0.0;-#,##0.0;;@'; // blank for zero, always one decimal (Schedule col only)
 
   const fill = argb => ({ type: 'pattern', pattern: 'solid', fgColor: { argb } });
   const fnt  = (bold, argb = 'FF1A1A2E', size = 11) =>
