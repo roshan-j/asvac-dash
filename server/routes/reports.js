@@ -220,7 +220,7 @@ async function buildMonthlyWorkbook(year, month, adultOnly = true) {
   const GREEN_EVEN= 'FFE8F4EE';  // even data rows, YTD cols
   const GREEN_ODD = 'FFF5FAF7';  // odd data rows, YTD cols (slight tint)
   const SPACER    = 'FFD8D8D8';
-  const HIDE_ZERO = '#,##0;-#,##0;;@'; // show blank for zero values
+  const HIDE_ZERO = '#,##0.##;-#,##0.##;;@'; // blank for zero; up to 2 decimals (trailing zeros hidden)
 
   const fill = argb => ({ type: 'pattern', pattern: 'solid', fgColor: { argb } });
   const fnt  = (bold, argb = 'FF1A1A2E', size = 11) =>
