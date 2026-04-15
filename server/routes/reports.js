@@ -77,7 +77,15 @@ async function buildMonthlyWorkbook(year, month, adultOnly = true) {
     ) r ON r.member_id = m.id
     LEFT JOIN (
       SELECT member_id,
-        SUM((CAST(SUBSTR(shift_time,6,4) AS INTEGER) - CAST(SUBSTR(shift_time,1,4) AS INTEGER))/400.0) AS schedule
+        SUM(
+          CASE
+            WHEN strftime('%w', shift_date) IN ('0','6')
+              AND CAST(SUBSTR(shift_time,1,4) AS INTEGER) >= 600
+              AND CAST(SUBSTR(shift_time,1,4) AS INTEGER) <  1200
+            THEN 1.0
+            ELSE (CAST(SUBSTR(shift_time,6,4) AS INTEGER) - CAST(SUBSTR(shift_time,1,4) AS INTEGER))/400.0
+          END
+        ) AS schedule
       FROM shift_signups WHERE shift_date BETWEEN ? AND ?
       GROUP BY member_id
     ) s ON s.member_id = m.id
@@ -109,7 +117,15 @@ async function buildMonthlyWorkbook(year, month, adultOnly = true) {
     ) ry ON ry.member_id = m.id
     LEFT JOIN (
       SELECT member_id,
-        SUM((CAST(SUBSTR(shift_time,6,4) AS INTEGER) - CAST(SUBSTR(shift_time,1,4) AS INTEGER))/400.0) AS schedule_ytd
+        SUM(
+          CASE
+            WHEN strftime('%w', shift_date) IN ('0','6')
+              AND CAST(SUBSTR(shift_time,1,4) AS INTEGER) >= 600
+              AND CAST(SUBSTR(shift_time,1,4) AS INTEGER) <  1200
+            THEN 1.0
+            ELSE (CAST(SUBSTR(shift_time,6,4) AS INTEGER) - CAST(SUBSTR(shift_time,1,4) AS INTEGER))/400.0
+          END
+        ) AS schedule_ytd
       FROM shift_signups WHERE shift_date BETWEEN ? AND ?
       GROUP BY member_id
     ) sy ON sy.member_id = m.id
