@@ -78,9 +78,17 @@ function findExistingMemberId(rosterName) {
 
   for (const c of candidates) {
     const cn = parseName(c.name);
-    if (cn.last !== r.last) continue;
-    // Accept exact full match OR last-name match with first-name compatibility
-    if (cn.full === r.full || firstMatches(r.first, cn.first)) {
+    // Same last word + first-name compatible (handles "Steve Greenfeld" ↔
+    // "Steven Greenfeld", "Patrick Smith" ↔ "Patrick R Smith")
+    if (cn.last === r.last) {
+      if (cn.full === r.full || firstMatches(r.first, cn.first)) return c.id;
+    }
+    // Word-boundary prefix match in either direction — catches the case
+    // where ESO carries an extra trailing surname, e.g. roster "Juan Wiley"
+    // ↔ ESO "Juan Wiley Garcia". Either name being a prefix-with-trailing-
+    // word of the other counts (sometimes the canonical row is shorter,
+    // sometimes longer).
+    if (cn.full.startsWith(r.full + ' ') || r.full.startsWith(cn.full + ' ')) {
       return c.id;
     }
   }
