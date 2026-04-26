@@ -10,8 +10,7 @@
       { "name": "Chendong Pan",     "rank": "EMT", "role": "Non-Driver"  },
       { "name": "Jia Li",           "rank": "EMT", "role": "Driver"      },
       { "name": "Jodie Reaver",     "rank": "EMR", "role": "Driver"      },
-      { "name": "Sarah Berkowitz",  "rank": "EMS", "role": "Driver"      },
-      { "name": "Royce Varghese",   "rank": "EMS", "role": "Non-Driver"  }
+      { "name": "Sarah Berkowitz",  "rank": "EMS", "role": "Driver"      }
     ],
     "2": [
       { "name": "Melissa Jhunja",   "rank": "EMT", "role": "Crew Chief"  },
@@ -54,6 +53,7 @@
     { "name": "Roy Haddad",        "crew": 5, "rank": "EMS", "role": "Driver",     "type": "FDC"          },
     { "name": "Andy DiJusto",      "crew": 5, "rank": "EMR", "role": "Driver",     "type": "leave"        },
     { "name": "Alan Greenwald",    "crew": 2, "rank": "EMT", "role": "Driver",     "type": "leave"        },
+    { "name": "Royce Varghese",    "crew": 1, "rank": "EMS", "role": "Non-Driver", "type": "probationary" },
     { "name": "Patrick Smith",     "crew": 3, "rank": "EMT", "role": "Driver",     "type": "probationary" },
     { "name": "Yu Zhou",           "crew": 3, "rank": "EMS", "role": "Non-Driver", "type": "probationary" },
     { "name": "Jakub Olszowski",   "crew": 3, "rank": "EMS", "role": "Non-Driver", "type": "probationary" },
