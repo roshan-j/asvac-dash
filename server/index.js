@@ -11,6 +11,8 @@ const reportsRoutes    = require('./routes/reports');
 const attendanceRoutes = require('./routes/attendance');
 const { syncDutyboard }       = require('./services/sheetsService');
 const { syncPersonnelTypes }  = require('./services/personnelSyncService');
+const { seedCrewRoster }      = require('./services/crewRosterService');
+const { syncNightShifts }     = require('./services/nightShiftService');
 
 const app  = express();
 const PORT = process.env.PORT || 3001;
@@ -57,14 +59,33 @@ async function runSync(label = 'scheduled') {
   }
 }
 
+// ─── Night-crew ICS sync (for the Annual Report) ──────────────────────────────
+// Daily by default — the calendar changes infrequently (only on swaps).
+const NIGHTSHIFT_CRON = process.env.NIGHTSHIFT_SYNC_CRON || '15 3 * * *';
+
+async function runNightSync(label = 'scheduled') {
+  try {
+    const result = await syncNightShifts();
+    console.log(`[nightshift:${label}] ${result.synced} nights synced (${result.eventsScanned} events scanned).`);
+  } catch (err) {
+    console.error(`[nightshift:${label}] Sync failed:`, err.message);
+  }
+}
+
 app.listen(PORT, async () => {
   console.log(`ASVAС Dashboard server running on http://localhost:${PORT}`);
+
+  // Seed the night-crew roster from server/config/crew_roster.json (idempotent).
+  try { seedCrewRoster(); } catch (err) {
+    console.warn('[roster] Seed failed (non-fatal):', err.message);
+  }
 
   // Sync personnel types from PERSONNEL sheets
   await syncPersonnelTypes();
 
   // Sync once immediately on startup
   await runSync('startup');
+  await runNightSync('startup');
 
   // Then schedule recurring sync
   if (SYNC_CRON !== 'disabled') {
@@ -73,6 +94,15 @@ app.listen(PORT, async () => {
       console.log(`[sheets] Auto-sync scheduled: "${SYNC_CRON}"`);
     } else {
       console.warn(`[sheets] Invalid SHEETS_SYNC_CRON value: "${SYNC_CRON}" — auto-sync disabled`);
+    }
+  }
+
+  if (NIGHTSHIFT_CRON !== 'disabled') {
+    if (cron.validate(NIGHTSHIFT_CRON)) {
+      cron.schedule(NIGHTSHIFT_CRON, () => runNightSync('cron'));
+      console.log(`[nightshift] Auto-sync scheduled: "${NIGHTSHIFT_CRON}"`);
+    } else {
+      console.warn(`[nightshift] Invalid NIGHTSHIFT_SYNC_CRON value: "${NIGHTSHIFT_CRON}" — auto-sync disabled`);
     }
   }
 });

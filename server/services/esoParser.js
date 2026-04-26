@@ -63,32 +63,57 @@ function normalizeName(raw) {
 // ─── Date parsing ──────────────────────────────────────────────────────────────
 
 /**
- * Parse "MM/DD/YYYY HH:MM" (or just "MM/DD/YYYY") → "YYYY-MM-DD"
- * Also handles ISO dates and Excel serial numbers.
+ * Parse "MM/DD/YYYY HH:MM" (or just "MM/DD/YYYY") → { date: "YYYY-MM-DD", time: "HH:MM"|null }.
+ * Also handles ISO dates and JS Date objects (from XLSX cellDates:true).
+ *
+ * The time portion drives the daytime/night split in the annual report —
+ * see annualReportService.js. NULL when the source row has no time component.
  */
-function parseCallDate(raw) {
-  if (!raw) return null;
+function parseCallDateTime(raw) {
+  if (!raw) return { date: null, time: null };
 
-  // If it's already a JS Date (from XLSX cellDates:true)
   if (raw instanceof Date) {
-    if (isNaN(raw)) return null;
-    return raw.toISOString().split('T')[0];
+    if (isNaN(raw)) return { date: null, time: null };
+    const iso = raw.toISOString();
+    // Anything imported via cellDates:true with a midnight time is a date-only
+    // cell; treat as unknown time rather than invent "00:00".
+    const time = (raw.getUTCHours() || raw.getUTCMinutes()) ? iso.slice(11, 16) : null;
+    return { date: iso.slice(0, 10), time };
   }
 
   const s = String(raw).trim();
 
-  // "MM/DD/YYYY HH:MM" or "MM/DD/YYYY"
-  const mdyMatch = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
-  if (mdyMatch) {
-    const [, m, d, y] = mdyMatch;
-    return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
+  // "MM/DD/YYYY HH:MM" or "MM/DD/YYYY HH:MM:SS"
+  const mdyTime = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})\s+(\d{1,2}):(\d{2})/);
+  if (mdyTime) {
+    const [, m, d, y, hh, mm] = mdyTime;
+    return {
+      date: `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`,
+      time: `${hh.padStart(2, '0')}:${mm}`,
+    };
+  }
+
+  // "MM/DD/YYYY" (date only)
+  const mdy = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (mdy) {
+    const [, m, d, y] = mdy;
+    return { date: `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`, time: null };
   }
 
   // ISO fallback
-  const d = new Date(s);
-  if (!isNaN(d)) return d.toISOString().split('T')[0];
+  const dt = new Date(s);
+  if (!isNaN(dt)) {
+    const iso = dt.toISOString();
+    const time = (dt.getUTCHours() || dt.getUTCMinutes()) ? iso.slice(11, 16) : null;
+    return { date: iso.slice(0, 10), time };
+  }
 
-  return null;
+  return { date: null, time: null };
+}
+
+// Backwards-compatible wrapper for callers that only need the date.
+function parseCallDate(raw) {
+  return parseCallDateTime(raw).date;
 }
 
 // ─── Row parsing ───────────────────────────────────────────────────────────────
@@ -145,7 +170,7 @@ function parseRows(rows) {
     const rawDate = row[tsCol];
     const rawName = row[mbCol];
 
-    const callDate   = parseCallDate(rawDate);
+    const { date: callDate, time: callTime } = parseCallDateTime(rawDate);
     const memberName = normalizeName(rawName);
     if (!callDate || !memberName) continue;
 
@@ -155,7 +180,7 @@ function parseRows(rows) {
       : String(rawDate || '').trim();
 
     if (!callKey) continue;
-    records.push({ callDate, callKey, memberName });
+    records.push({ callDate, callTime, callKey, memberName });
   }
   return records;
 }
@@ -195,14 +220,19 @@ function importEsoData(buffer, filename, batchId) {
     RETURNING id
   `);
 
-  // callKey is the raw timestamp string — uniquely identifies a call
+  // callKey is the raw timestamp string (Format A) or UUID (Format B) and
+  // uniquely identifies a call. ON CONFLICT … DO UPDATE backfills call_time
+  // for existing rows that were imported before the parser stored time —
+  // re-importing the same CSV is now an idempotent way to populate call_time.
   const insertPoint = db.prepare(`
-    INSERT OR IGNORE INTO riding_points
-      (member_id, call_date, call_number, call_type, points, import_batch)
-    VALUES (?, ?, ?, NULL, ?, ?)
+    INSERT INTO riding_points
+      (member_id, call_date, call_time, call_number, call_type, points, import_batch)
+    VALUES (?, ?, ?, ?, NULL, ?, ?)
+    ON CONFLICT(member_id, call_date, call_number) DO UPDATE
+      SET call_time = COALESCE(riding_points.call_time, excluded.call_time)
   `);
 
-  let inserted = 0, skipped = 0;
+  let inserted = 0, skipped = 0, backfilled = 0;
   const membersSeen = new Set();
   const callsSeen   = new Set();
 
@@ -214,15 +244,24 @@ function importEsoData(buffer, filename, batchId) {
       membersSeen.add(rec.memberName);
       callsSeen.add(rec.callKey);
 
+      // Pre-check: was a row with NULL call_time present? If yes and we have
+      // a time now, this counts as a backfill rather than a fresh insert.
+      const existing = db.prepare(
+        'SELECT call_time FROM riding_points WHERE member_id=? AND call_date=? AND call_number=?'
+      ).get(row.id, rec.callDate, rec.callKey);
+      const isBackfill = existing && existing.call_time == null && rec.callTime != null;
+
       const result = insertPoint.run(
         row.id,
         rec.callDate,
-        rec.callKey,      // stored as call_number for deduplication
+        rec.callTime || null,
+        rec.callKey,
         POINTS_PER_CALL,
         batchId
       );
 
-      if (result.changes > 0) inserted++;
+      if (!existing) inserted++;
+      else if (isBackfill) backfilled++;
       else skipped++;
     }
   });
@@ -232,6 +271,7 @@ function importEsoData(buffer, filename, batchId) {
   return {
     inserted,
     skipped,
+    backfilled,
     records:  records.length,
     members:  membersSeen.size,
     calls:    callsSeen.size,

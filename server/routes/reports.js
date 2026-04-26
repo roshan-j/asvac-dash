@@ -6,6 +6,10 @@ const express = require('express');
 const router  = express.Router();
 const db      = require('../db/database');
 const XLSX    = require('xlsx');
+const { buildAnnualReport }     = require('../services/annualReportService');
+const { buildAnnualReportXlsx } = require('../services/annualReportXlsx');
+const { syncNightShifts }       = require('../services/nightShiftService');
+const { seedCrewRoster }        = require('../services/crewRosterService');
 
 // ─── GET /api/reports/monthly-print?year=YYYY&month=MM[&adultOnly=1] ──────────
 router.get('/monthly-print', (req, res) => {
@@ -163,6 +167,47 @@ router.get('/monthly-print', (req, res) => {
 
   } catch (err) {
     console.error('[reports] monthly-print error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── GET /api/reports/annual?year=YYYY ────────────────────────────────────────
+// Builds the night-crew hours XLSX for a full calendar year. Defaults to the
+// last full year (e.g. in any month of 2026 → 2025).
+router.get('/annual', (req, res) => {
+  try {
+    // Default to the last full calendar year. Override with ?year=YYYY to
+    // request the current year (partial) or any prior year (re-run).
+    const defaultYear = new Date().getFullYear() - 1;
+    const year = parseInt(req.query.year, 10) || defaultYear;
+    if (year < 2000 || year > 2100) {
+      return res.status(400).json({ error: 'year must be between 2000 and 2100' });
+    }
+
+    const report = buildAnnualReport(year);
+    const buf    = buildAnnualReportXlsx(report);
+
+    const filename = `ASVAC_Night_Crew_${year}.xlsx`;
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.send(buf);
+
+  } catch (err) {
+    console.error('[reports] annual error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── POST /api/reports/annual/sync ────────────────────────────────────────────
+// Manually re-fetch the ICS calendar and re-seed the crew roster. Useful when
+// the calendar gets edited (swaps, corrections) or the roster JSON is updated.
+router.post('/annual/sync', async (req, res) => {
+  try {
+    const rosterResult = seedCrewRoster();
+    const icsResult    = await syncNightShifts();
+    res.json({ success: true, roster: rosterResult, ics: icsResult });
+  } catch (err) {
+    console.error('[reports] annual/sync error:', err);
     res.status(500).json({ error: err.message });
   }
 });

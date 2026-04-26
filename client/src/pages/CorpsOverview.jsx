@@ -34,27 +34,44 @@ export default function CorpsOverview() {
   const [month,       setMonth]       = useState(now.getMonth() + 1);
   const [sortCol,     setSortCol]     = useState('totalPoints');
   const [sortDir,     setSortDir]     = useState('desc');
-  const [downloading,   setDownloading]   = useState(false);
-  const [showAttendance, setShowAttendance] = useState(false);
+  const [downloading,        setDownloading]        = useState(false);
+  const [downloadingAnnual,  setDownloadingAnnual]  = useState(false);
+  const [showAttendance,     setShowAttendance]     = useState(false);
 
-  async function handleDownload() {
-    setDownloading(true);
+  async function downloadXlsx(url, filename, setBusy) {
+    setBusy(true);
     try {
-      const resp = await fetch(`${API_BASE}/api/reports/monthly-print?year=${year}&month=${month}&adultOnly=1`);
+      const resp = await fetch(url);
       if (!resp.ok) throw new Error(await resp.text());
       const blob = await resp.blob();
-      const url  = URL.createObjectURL(blob);
-      const a    = document.createElement('a');
-      const monthName = new Date(year, month - 1, 1).toLocaleString('en-US', { month: 'long' });
-      a.href     = url;
-      a.download = `ASVAC_${monthName}_${year}.xlsx`;
+      const objUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href     = objUrl;
+      a.download = filename;
       a.click();
-      URL.revokeObjectURL(url);
+      URL.revokeObjectURL(objUrl);
     } catch (err) {
       alert('Download failed: ' + err.message);
     } finally {
-      setDownloading(false);
+      setBusy(false);
     }
+  }
+
+  function handleDownloadMonthly() {
+    const monthName = new Date(year, month - 1, 1).toLocaleString('en-US', { month: 'long' });
+    downloadXlsx(
+      `${API_BASE}/api/reports/monthly-print?year=${year}&month=${month}&adultOnly=1`,
+      `ASVAC_${monthName}_${year}.xlsx`,
+      setDownloading,
+    );
+  }
+
+  function handleDownloadAnnual() {
+    downloadXlsx(
+      `${API_BASE}/api/reports/annual?year=${year}`,
+      `ASVAC_Night_Crew_${year}.xlsx`,
+      setDownloadingAnnual,
+    );
   }
 
   const { data: trend,   loading: tl } = useApi(getCorpsTrend, [24], []);
@@ -85,6 +102,7 @@ export default function CorpsOverview() {
   const MONTH_OPTS = Array.from({ length: 12 }, (_, i) => i + 1);
 
   return (
+    <>
     <div style={styles.page}>
       <div style={styles.header}>
         <h1 style={styles.h1}>Corps Overview</h1>
@@ -100,12 +118,20 @@ export default function CorpsOverview() {
             ))}
           </select>
           <button
-            onClick={handleDownload}
+            onClick={handleDownloadMonthly}
             disabled={downloading}
             style={styles.downloadBtn}
-            title={`Download ${new Date(year, month-1).toLocaleString('en-US', { month: 'long' })} ${year} report`}
+            title={`Download ${new Date(year, month-1).toLocaleString('en-US', { month: 'long' })} ${year} activity report`}
           >
-            {downloading ? '⏳' : '📥'} {downloading ? 'Downloading…' : 'Download Sheet'}
+            {downloading ? '⏳' : '📥'} {downloading ? 'Downloading…' : 'Monthly Report'}
+          </button>
+          <button
+            onClick={handleDownloadAnnual}
+            disabled={downloadingAnnual}
+            style={{ ...styles.downloadBtn, background: '#5b3a8c' }}
+            title={`Download ${year} night-crew hours report (annual)`}
+          >
+            {downloadingAnnual ? '⏳' : '📅'} {downloadingAnnual ? 'Downloading…' : 'Annual Report'}
           </button>
           <button
             onClick={() => setShowAttendance(true)}
@@ -197,6 +223,7 @@ export default function CorpsOverview() {
     {showAttendance && (
       <AttendanceUploadModal onClose={() => setShowAttendance(false)} />
     )}
+    </>
   );
 }
 
