@@ -255,12 +255,20 @@ async function syncDutyboard() {
     }
   }
 
-  // Remove ghost members created by previous bad name extraction (no data anywhere)
+  // Remove ghost members created by previous bad name extraction (no data anywhere).
+  // Must exclude every table that holds a FK to members, otherwise the DELETE
+  // hits a FOREIGN KEY constraint failure.
   const cleaned = db.prepare(`
     DELETE FROM members
     WHERE id NOT IN (SELECT DISTINCT member_id FROM riding_points)
       AND id NOT IN (SELECT DISTINCT member_id FROM nonriding_points)
       AND id NOT IN (SELECT DISTINCT member_id FROM shift_signups)
+      AND id NOT IN (SELECT DISTINCT member_id FROM standby_events)
+      AND id NOT IN (SELECT DISTINCT member_id FROM officers)
+      AND id NOT IN (SELECT DISTINCT member_id FROM crew_members)
+      AND id NOT IN (SELECT DISTINCT member_id FROM attendance_events)
+      AND id NOT IN (SELECT DISTINCT member_id FROM member_aliases)
+      AND id NOT IN (SELECT DISTINCT member_id FROM email_logs WHERE member_id IS NOT NULL)
   `).run();
   if (cleaned.changes > 0) {
     console.log(`[sheets] Removed ${cleaned.changes} orphan member record(s).`);
