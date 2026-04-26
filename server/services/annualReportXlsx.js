@@ -1,214 +1,210 @@
 /**
- * Annual Night-Crew Report — XLSX renderer
+ * Annual Night-Crew Report — XLSX renderer (ExcelJS)
  *
  * Consumes the data structure from annualReportService.buildAnnualReport()
- * and produces a styled .xlsx buffer that mirrors the PDF report layout:
- *   - Title + subtitle + methodology block (merged across the table width)
- *   - Calendar coverage table (4 cols)
- *   - Per-crew hours table (Member..Dec, Nights, Daytime hrs, Total hrs)
- *     with crew section bands
- *   - Notes & exclusions footer
+ * and produces a styled .xlsx buffer that mirrors the original PDF report.
+ *
+ * Uses ExcelJS for parity with reports.js's buildMonthlyWorkbook.
  */
 
-const XLSX = require('xlsx-js-style');
+const ExcelJS = require('exceljs');
 
 const MONTH_LABELS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
-// Member-table headers
-const MEMBER_HEADERS = [
+const HEADER_LABELS = [
   'Member', 'Rank', 'Role',
   ...MONTH_LABELS,
   'Nights', 'Daytime hrs', 'Total hrs',
 ];
 
-const COL_COUNT = MEMBER_HEADERS.length; // 18
+const COL_COUNT = HEADER_LABELS.length; // 18
 
-// ─── Style palette (matches the PDF's blue ramp) ─────────────────────────────
+// ─── Style palette (matches the PDF and the monthly report's blue ramp) ──────
+const NAVY        = 'FF1F4E79';
+const BLUE_BAND   = 'FFD9E2F3';  // light blue for crew separator rows
+const ALT_ROW     = 'FFF8F9FA';  // alternating row tint
+const TEXT        = 'FF1A1A2E';
+const MUTED       = 'FF666666';
+const SPACER_BG   = 'FFD8D8D8';
 
-const C = {
-  navy:       '1F4E79',
-  blueBand:   'D9E2F3',  // light blue for crew separators
-  alt:        'F2F6FC',  // very light blue for alternating rows
-  text:       '1F2E4D',
-  muted:      '666666',
-  border:     'BFBFBF',
-};
+const fill  = argb => ({ type: 'pattern', pattern: 'solid', fgColor: { argb } });
+const fnt   = (bold = false, argb = TEXT, size = 10) =>
+  ({ name: 'Calibri', size, bold, color: { argb } });
+const thinBorder = { style: 'thin', color: { argb: 'FFBFBFBF' } };
+const allBorders = { top: thinBorder, bottom: thinBorder, left: thinBorder, right: thinBorder };
 
-const border = { style: 'thin', color: { rgb: C.border } };
-const allBorders = { top: border, bottom: border, left: border, right: border };
+const HIDE_ZERO = '#,##0;-#,##0;;@';
+const PCT_1     = '0.0%';
 
-const styles = {
-  title: {
-    font: { bold: true, sz: 18, color: { rgb: C.text } },
-    alignment: { horizontal: 'center', vertical: 'center' },
-  },
-  subtitle: {
-    font: { italic: true, sz: 11, color: { rgb: C.muted } },
-    alignment: { horizontal: 'center', vertical: 'center' },
-  },
-  methodology: {
-    font: { sz: 9, color: { rgb: C.muted } },
-    alignment: { horizontal: 'left', vertical: 'top', wrapText: true },
-  },
-  sectionH: {
-    font: { bold: true, sz: 13, color: { rgb: C.navy } },
-    alignment: { horizontal: 'left' },
-  },
-  th: {
-    fill: { patternType: 'solid', fgColor: { rgb: C.navy } },
-    font: { bold: true, color: { rgb: 'FFFFFF' } },
-    alignment: { horizontal: 'center', vertical: 'center' },
-    border: allBorders,
-  },
-  thLeft: {
-    fill: { patternType: 'solid', fgColor: { rgb: C.navy } },
-    font: { bold: true, color: { rgb: 'FFFFFF' } },
-    alignment: { horizontal: 'left', vertical: 'center' },
-    border: allBorders,
-  },
-  cell: {
-    font: { sz: 10, color: { rgb: C.text } },
-    alignment: { horizontal: 'left', vertical: 'center' },
-    border: allBorders,
-  },
-  cellRight: {
-    font: { sz: 10, color: { rgb: C.text } },
-    alignment: { horizontal: 'right', vertical: 'center' },
-    border: allBorders,
-  },
-  cellBold: {
-    font: { sz: 10, bold: true, color: { rgb: C.text } },
-    alignment: { horizontal: 'right', vertical: 'center' },
-    border: allBorders,
-  },
-  pct: {
-    font: { sz: 10, color: { rgb: C.text } },
-    alignment: { horizontal: 'right', vertical: 'center' },
-    numFmt: '0.0%',
-    border: allBorders,
-  },
-  totalRow: {
-    fill: { patternType: 'solid', fgColor: { rgb: C.alt } },
-    font: { sz: 10, bold: true, color: { rgb: C.text } },
-    alignment: { horizontal: 'right', vertical: 'center' },
-    border: allBorders,
-  },
-  totalRowLeft: {
-    fill: { patternType: 'solid', fgColor: { rgb: C.alt } },
-    font: { sz: 10, bold: true, color: { rgb: C.text } },
-    alignment: { horizontal: 'left', vertical: 'center' },
-    border: allBorders,
-  },
-  crewBand: {
-    fill: { patternType: 'solid', fgColor: { rgb: C.blueBand } },
-    font: { bold: true, sz: 11, color: { rgb: C.navy } },
-    alignment: { horizontal: 'left', vertical: 'center' },
-    border: allBorders,
-  },
-  footerLabel: {
-    font: { bold: true, sz: 10, color: { rgb: C.text } },
-    alignment: { horizontal: 'left', vertical: 'top', wrapText: true },
-  },
-  footerText: {
-    font: { sz: 10, color: { rgb: C.text } },
-    alignment: { horizontal: 'left', vertical: 'top', wrapText: true },
-  },
-};
+// ─── Helpers ─────────────────────────────────────────────────────────────────
 
-// ─── Cell helpers ─────────────────────────────────────────────────────────────
+function styleCell(cell, { font, fillArgb, alignment, numFmt, border }) {
+  if (font)      cell.font      = font;
+  if (fillArgb)  cell.fill      = fill(fillArgb);
+  if (alignment) cell.alignment = alignment;
+  if (numFmt)    cell.numFmt    = numFmt;
+  if (border)    cell.border    = border;
+}
 
-function s(value, style)  { return { v: value, t: 's', s: style }; }
-function n(value, style)  { return { v: value, t: 'n', s: style }; }
-function blank()          { return { v: '', t: 's' }; }
+function mergeAndStyle(ws, row, c1, c2, value, style) {
+  ws.mergeCells(row, c1, row, c2);
+  const cell = ws.getCell(row, c1);
+  cell.value = value;
+  styleCell(cell, style);
+}
 
-function addr(r, c) { return XLSX.utils.encode_cell({ r, c }); }
+// ─── Main builder ────────────────────────────────────────────────────────────
 
-// ─── Main builder ─────────────────────────────────────────────────────────────
+async function buildAnnualReportXlsxBuffer(report) {
+  const wb = new ExcelJS.Workbook();
+  wb.creator = 'ASVAC Dashboard';
+  const ws = wb.addWorksheet(`${report.year} Night Crew`);
 
-function buildAnnualReportXlsx(report) {
-  const ws = {};
-  const merges = [];
-  let rowIdx = 0;
+  // Column widths: Member wider, Rank/Role moderate, months narrow
+  ws.columns = [
+    { width: 22 }, // A  Member
+    { width: 6  }, // B  Rank
+    { width: 12 }, // C  Role
+    ...new Array(12).fill({ width: 6 }), // D-O  Jan-Dec
+    { width: 7  }, // P  Nights
+    { width: 12 }, // Q  Daytime hrs
+    { width: 10 }, // R  Total hrs
+  ];
 
-  function setCell(r, c, cellObj) {
-    ws[addr(r, c)] = cellObj;
-  }
-  function setRow(r, cells, fillStyle) {
-    cells.forEach((cell, c) => {
-      if (cell != null) {
-        setCell(r, c, cell);
-      } else if (fillStyle) {
-        setCell(r, c, { v: '', t: 's', s: fillStyle });
-      }
+  let rowIdx = 1;
+
+  // ── Title block ────────────────────────────────────────────────────────────
+  mergeAndStyle(ws, rowIdx, 1, COL_COUNT,
+    'Ardsley Secor Volunteer Ambulance Corps',
+    {
+      font: fnt(true, TEXT, 18),
+      alignment: { horizontal: 'center', vertical: 'middle' },
     });
-  }
-  function mergeCells(r, c1, c2, cell) {
-    setCell(r, c1, cell);
-    if (c2 > c1) merges.push({ s: { r, c: c1 }, e: { r, c: c2 } });
-  }
-
-  // ── Title block ─────────────────────────────────────────────────────────
-  mergeCells(rowIdx, 0, COL_COUNT - 1, s('Ardsley Secor Volunteer Ambulance Corps', styles.title));
+  ws.getRow(rowIdx).height = 26;
   rowIdx++;
 
-  mergeCells(rowIdx, 0, COL_COUNT - 1,
-    s(`${report.year} Night-Crew Hours Report — 10:00 PM – 6:00 AM Shift`, styles.subtitle));
+  mergeAndStyle(ws, rowIdx, 1, COL_COUNT,
+    `${report.year} Night-Crew Hours Report — 10:00 PM – 6:00 AM Shift`,
+    {
+      font: fnt(false, MUTED, 11),
+      alignment: { horizontal: 'center', vertical: 'middle' },
+    });
+  ws.getRow(rowIdx).height = 18;
   rowIdx++;
 
   const methodologyText =
     'Methodology. Each on-call night is credited as 8 hours (10:00 PM – 6:00 AM) to every active member of the crew assigned to that night, sourced from the public ASVAC Google Calendar. ' +
     'Each daytime ride (start time outside 10 PM–6 AM, sourced from ESO) earns 2 hours of additional credit, summed annually per member. ' +
     'Full Day Crew (FDC) members and members on Medical / Personnel Leave are excluded from night-crew totals; see footer.';
-  mergeCells(rowIdx, 0, COL_COUNT - 1, s(methodologyText, styles.methodology));
-  rowIdx++; // methodology row gets extra height set below
-  const methodologyRow = rowIdx - 1;
-
-  rowIdx++; // blank spacer row
-
-  // ── Calendar coverage section ───────────────────────────────────────────
-  mergeCells(rowIdx, 0, COL_COUNT - 1, s('Calendar coverage', styles.sectionH));
+  mergeAndStyle(ws, rowIdx, 1, COL_COUNT, methodologyText, {
+    font: fnt(false, MUTED, 9),
+    alignment: { horizontal: 'left', vertical: 'top', wrapText: true },
+  });
+  ws.getRow(rowIdx).height = 50;
   rowIdx++;
 
-  // 4-col coverage table — left-aligned in columns 0..3
-  setRow(rowIdx, [
-    s('Crew',          styles.thLeft),
-    s('Nights on call',styles.th),
-    s('Crew-hours',    styles.th),
-    s('% of year',     styles.th),
-  ]);
+  rowIdx++; // blank spacer
+
+  // ── Calendar coverage section ─────────────────────────────────────────────
+  mergeAndStyle(ws, rowIdx, 1, COL_COUNT, 'Calendar coverage', {
+    font: fnt(true, NAVY, 13),
+    alignment: { horizontal: 'left' },
+  });
+  rowIdx++;
+
+  // Coverage header row (4 columns)
+  const covHeaders = ['Crew', 'Nights on call', 'Crew-hours', '% of year'];
+  covHeaders.forEach((h, i) => {
+    const cell = ws.getCell(rowIdx, i + 1);
+    cell.value = h;
+    styleCell(cell, {
+      font: fnt(true, 'FFFFFFFF'),
+      fillArgb: NAVY,
+      alignment: { horizontal: i === 0 ? 'left' : 'center', vertical: 'middle' },
+      border: allBorders,
+    });
+  });
   rowIdx++;
 
   for (const row of report.coverage) {
     const isTotal = row.crew === 'Total';
-    setRow(rowIdx, [
-      s(row.crew, isTotal ? styles.totalRowLeft : styles.cell),
-      n(row.nights, isTotal ? styles.totalRow : styles.cellRight),
-      n(row.hours,  isTotal ? styles.totalRow : styles.cellRight),
-      n(row.pctOfYear, { ...(isTotal ? styles.totalRow : styles.pct), numFmt: '0.0%' }),
-    ]);
+    const nameCell = ws.getCell(rowIdx, 1);
+    nameCell.value = row.crew;
+    styleCell(nameCell, {
+      font: fnt(isTotal, TEXT),
+      fillArgb: isTotal ? ALT_ROW : null,
+      alignment: { horizontal: 'left', vertical: 'middle' },
+      border: allBorders,
+    });
+
+    const nightsCell = ws.getCell(rowIdx, 2);
+    nightsCell.value = row.nights;
+    styleCell(nightsCell, {
+      font: fnt(isTotal, TEXT),
+      fillArgb: isTotal ? ALT_ROW : null,
+      alignment: { horizontal: 'right', vertical: 'middle' },
+      border: allBorders,
+    });
+
+    const hoursCell = ws.getCell(rowIdx, 3);
+    hoursCell.value = row.hours;
+    styleCell(hoursCell, {
+      font: fnt(isTotal, TEXT),
+      fillArgb: isTotal ? ALT_ROW : null,
+      alignment: { horizontal: 'right', vertical: 'middle' },
+      border: allBorders,
+    });
+
+    const pctCell = ws.getCell(rowIdx, 4);
+    pctCell.value = row.pctOfYear;
+    styleCell(pctCell, {
+      font: fnt(isTotal, TEXT),
+      fillArgb: isTotal ? ALT_ROW : null,
+      alignment: { horizontal: 'right', vertical: 'middle' },
+      numFmt: PCT_1,
+      border: allBorders,
+    });
     rowIdx++;
   }
 
   rowIdx++; // spacer
 
-  // ── Hours-by-member section ─────────────────────────────────────────────
-  mergeCells(rowIdx, 0, COL_COUNT - 1,
-    s('Hours by member — monthly breakdown', styles.sectionH));
+  // ── Hours-by-member section ───────────────────────────────────────────────
+  mergeAndStyle(ws, rowIdx, 1, COL_COUNT, 'Hours by member — monthly breakdown', {
+    font: fnt(true, NAVY, 13),
+    alignment: { horizontal: 'left' },
+  });
   rowIdx++;
 
   // Header row
-  setRow(rowIdx, MEMBER_HEADERS.map((h, i) => s(h, i < 3 ? styles.thLeft : styles.th)));
+  HEADER_LABELS.forEach((label, i) => {
+    const cell = ws.getCell(rowIdx, i + 1);
+    cell.value = label;
+    styleCell(cell, {
+      font: fnt(true, 'FFFFFFFF'),
+      fillArgb: NAVY,
+      alignment: { horizontal: i < 3 ? 'left' : 'center', vertical: 'middle' },
+      border: allBorders,
+    });
+  });
   rowIdx++;
 
+  // Per-crew section
+  const ROLE_ORDER = { 'Crew Chief': 0, 'Driver': 1, 'Non-Driver': 2 };
+
   for (const crew of report.crews) {
-    // Crew band
-    mergeCells(rowIdx, 0, COL_COUNT - 1,
-      s(`Crew ${crew.number} — ${crew.nights} nights (${crew.hours} hrs of coverage)`,
-        styles.crewBand));
+    // Crew band row (merged across all columns)
+    mergeAndStyle(ws, rowIdx, 1, COL_COUNT,
+      `Crew ${crew.number} — ${crew.nights} nights (${crew.hours} hrs of coverage)`,
+      {
+        font: fnt(true, NAVY, 11),
+        fillArgb: BLUE_BAND,
+        alignment: { horizontal: 'left', vertical: 'middle' },
+        border: allBorders,
+      });
     rowIdx++;
 
-    // Sort members by role priority then name (Crew Chief first, etc.)
-    const ROLE_ORDER = { 'Crew Chief': 0, 'Driver': 1, 'Non-Driver': 2 };
+    // Sort members: Crew Chief, Driver, Non-Driver, by name within
     const members = [...crew.members].sort((a, b) => {
       const aRole = ROLE_ORDER[a.role] ?? 9;
       const bRole = ROLE_ORDER[b.role] ?? 9;
@@ -216,84 +212,120 @@ function buildAnnualReportXlsx(report) {
       return a.name.localeCompare(b.name);
     });
 
-    for (const m of members) {
-      const cells = [
-        s(m.name,  styles.cell),
-        s(m.rank ?? '', styles.cell),
-        s(m.role ?? '', styles.cell),
-        ...m.monthly.map(v => v ? n(v, styles.cellRight) : s('', styles.cellRight)),
-        n(m.nights, styles.cellRight),
-        n(m.daytimeHrs, styles.cellRight),
-        n(m.totalHrs, styles.cellBold),
-      ];
-      setRow(rowIdx, cells);
+    members.forEach((m, idx) => {
+      const evenRow = idx % 2 === 0;
+      const rowFill = evenRow ? ALT_ROW : null;
+
+      // Member, Rank, Role
+      [m.name, m.rank ?? '', m.role ?? ''].forEach((v, i) => {
+        const cell = ws.getCell(rowIdx, i + 1);
+        cell.value = v;
+        styleCell(cell, {
+          font: fnt(false, TEXT),
+          fillArgb: rowFill,
+          alignment: { horizontal: 'left', vertical: 'middle', indent: i === 0 ? 1 : 0 },
+          border: allBorders,
+        });
+      });
+
+      // Months Jan-Dec
+      m.monthly.forEach((v, i) => {
+        const cell = ws.getCell(rowIdx, i + 4);
+        cell.value = v || null;
+        styleCell(cell, {
+          font: fnt(false, TEXT),
+          fillArgb: rowFill,
+          alignment: { horizontal: 'right', vertical: 'middle' },
+          numFmt: HIDE_ZERO,
+          border: allBorders,
+        });
+      });
+
+      // Nights
+      const nCell = ws.getCell(rowIdx, 16);
+      nCell.value = m.nights;
+      styleCell(nCell, {
+        font: fnt(false, TEXT),
+        fillArgb: rowFill,
+        alignment: { horizontal: 'right', vertical: 'middle' },
+        numFmt: HIDE_ZERO,
+        border: allBorders,
+      });
+
+      // Daytime hrs
+      const dCell = ws.getCell(rowIdx, 17);
+      dCell.value = m.daytimeHrs;
+      styleCell(dCell, {
+        font: fnt(false, TEXT),
+        fillArgb: rowFill,
+        alignment: { horizontal: 'right', vertical: 'middle' },
+        numFmt: HIDE_ZERO,
+        border: allBorders,
+      });
+
+      // Total hrs (bold)
+      const tCell = ws.getCell(rowIdx, 18);
+      tCell.value = m.totalHrs;
+      styleCell(tCell, {
+        font: fnt(true, TEXT),
+        fillArgb: rowFill,
+        alignment: { horizontal: 'right', vertical: 'middle' },
+        numFmt: HIDE_ZERO,
+        border: allBorders,
+      });
+
       rowIdx++;
-    }
+    });
   }
 
   rowIdx++; // spacer
 
-  // ── Notes & exclusions footer ───────────────────────────────────────────
-  mergeCells(rowIdx, 0, COL_COUNT - 1, s('Notes & exclusions', styles.sectionH));
+  // ── Notes & exclusions footer ─────────────────────────────────────────────
+  mergeAndStyle(ws, rowIdx, 1, COL_COUNT, 'Notes & exclusions', {
+    font: fnt(true, NAVY, 13),
+    alignment: { horizontal: 'left' },
+  });
   rowIdx++;
 
-  function fmtList(items) {
-    return items.map(e => `${e.name} (Crew ${e.crew})`).join(', ');
-  }
+  const fmtList = items => items.map(e => `${e.name} (Crew ${e.crew})`).join(', ');
 
-  const fdcLine =
-    'Excluded as Full Day Crew (FDC): ' +
+  const fdcLine = 'Excluded as Full Day Crew (FDC): ' +
     (report.exclusions.fdc.length ? fmtList(report.exclusions.fdc) + '.' : 'none.');
-  mergeCells(rowIdx, 0, COL_COUNT - 1, s(fdcLine, styles.footerText));
+  mergeAndStyle(ws, rowIdx, 1, COL_COUNT, fdcLine, {
+    font: fnt(false, TEXT, 10),
+    alignment: { horizontal: 'left', vertical: 'top', wrapText: true },
+  });
   rowIdx++;
 
-  const leaveLine =
-    'Excluded as Medical / Personnel Leave: ' +
+  const leaveLine = 'Excluded as Medical / Personnel Leave: ' +
     (report.exclusions.leave.length ? fmtList(report.exclusions.leave) + '.' : 'none.');
-  mergeCells(rowIdx, 0, COL_COUNT - 1, s(leaveLine, styles.footerText));
+  mergeAndStyle(ws, rowIdx, 1, COL_COUNT, leaveLine, {
+    font: fnt(false, TEXT, 10),
+    alignment: { horizontal: 'left', vertical: 'top', wrapText: true },
+  });
   rowIdx++;
 
-  const cycleLine =
-    'Cycle: Crews rotate on a 6-crew, 3-night cycle (each crew on call for 3 consecutive nights every 18 days).';
-  mergeCells(rowIdx, 0, COL_COUNT - 1, s(cycleLine, styles.footerText));
+  const cycleLine = 'Cycle: Crews rotate on a 6-crew, 3-night cycle (each crew on call for 3 consecutive nights every 18 days).';
+  mergeAndStyle(ws, rowIdx, 1, COL_COUNT, cycleLine, {
+    font: fnt(false, TEXT, 10),
+    alignment: { horizontal: 'left', vertical: 'top', wrapText: true },
+  });
   rowIdx++;
 
   if (report.meta.daytimeRideRowsUnparsed > 0) {
     const warnLine =
       `Note: ${report.meta.daytimeRideRowsUnparsed} ESO ride record(s) lacked a parseable start time and were excluded from the daytime-hours calculation.`;
-    mergeCells(rowIdx, 0, COL_COUNT - 1, s(warnLine, styles.footerText));
+    mergeAndStyle(ws, rowIdx, 1, COL_COUNT, warnLine, {
+      font: fnt(false, MUTED, 10),
+      alignment: { horizontal: 'left', vertical: 'top', wrapText: true },
+    });
     rowIdx++;
   }
 
-  // ── Worksheet metadata ──────────────────────────────────────────────────
-  ws['!ref'] = XLSX.utils.encode_range({
-    s: { r: 0, c: 0 },
-    e: { r: rowIdx - 1, c: COL_COUNT - 1 },
-  });
-  ws['!merges'] = merges;
+  // Freeze the title rows + header so scrolling keeps them visible
+  ws.views = [{ state: 'frozen', xSplit: 0, ySplit: 5 }];
 
-  // Column widths: Member wider, Rank/Role moderate, months narrow
-  ws['!cols'] = [
-    { wch: 22 },  // Member
-    { wch: 6 },   // Rank
-    { wch: 12 },  // Role
-    ...new Array(12).fill({ wch: 6 }), // Months
-    { wch: 7 },   // Nights
-    { wch: 12 },  // Daytime hrs
-    { wch: 10 },  // Total hrs
-  ];
-
-  // Row heights: title taller, methodology much taller (it wraps)
-  ws['!rows'] = [];
-  ws['!rows'][0] = { hpt: 26 };  // title
-  ws['!rows'][1] = { hpt: 18 };  // subtitle
-  ws['!rows'][methodologyRow] = { hpt: 50 };  // methodology wrap
-
-  // ── Pack into workbook ──────────────────────────────────────────────────
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, `${report.year} Night Crew`);
-
-  return XLSX.write(wb, { type: 'buffer', bookType: 'xlsx', cellStyles: true });
+  return wb.xlsx.writeBuffer();
 }
 
-module.exports = { buildAnnualReportXlsx };
+module.exports = { buildAnnualReportXlsxBuffer };
