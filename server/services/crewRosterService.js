@@ -204,7 +204,7 @@ function getActiveRosterByCrew() {
 function getExclusions() {
   return db.prepare(`
     SELECT m.id, COALESCE(cm.display_name, m.name) AS name,
-           cm.crew_number, cm.exclusion
+           cm.crew_number, cm.rank, cm.role, cm.exclusion
     FROM crew_members cm
     JOIN members m ON m.id = cm.member_id
     WHERE cm.exclusion IS NOT NULL

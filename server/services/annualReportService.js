@@ -160,11 +160,41 @@ function buildAnnualReport(year) {
   });
 
   // ─── Exclusions footer ────────────────────────────────────────────────────
-  const exclusions = { fdc: [], leave: [] };
-  for (const ex of getExclusions()) {
-    const bucket = ex.exclusion === 'FDC' ? 'fdc' : 'leave';
-    exclusions[bucket].push({ name: ex.name, crew: ex.crew_number, type: ex.exclusion });
+  // Bucket excluded members by type. Three buckets:
+  //   fdc          — Full Day Crew (ride days, not nights)
+  //   leave        — Medical / Personnel Leave
+  //   probationary — newer members not yet eligible for night-crew totals
+  const allExclusions = getExclusions();
+  const exclusions = { fdc: [], leave: [], probationary: [] };
+  const fdcMembers = [];   // full row info for FDC daytime-contributions section
+  for (const ex of allExclusions) {
+    const bucketKey = ex.exclusion === 'FDC' ? 'fdc'
+                    : ex.exclusion === 'probationary' ? 'probationary'
+                    : 'leave';
+    exclusions[bucketKey].push({ name: ex.name, crew: ex.crew_number, type: ex.exclusion });
+    if (ex.exclusion === 'FDC') fdcMembers.push(ex);
   }
+
+  // ─── FDC daytime contributions ────────────────────────────────────────────
+  // FDC members ride during daytime even though they don't take night shifts.
+  // We surface only those with at least one daytime ride in the report year.
+  const fdcContributions = [];
+  for (const ex of fdcMembers) {
+    const daytimeRides = daytimeByMemberId.get(ex.id) || 0;
+    if (daytimeRides <= 0) continue;
+    const daytimeHrs = daytimeRides * HOURS_PER_DAYTIME_RIDE;
+    fdcContributions.push({
+      memberId: ex.id,
+      name:     ex.name,             // display_name from crew_members
+      rank:     ex.rank,
+      role:     ex.role,
+      crew:     ex.crew_number,
+      daytimeRides,
+      daytimeHrs,
+      totalHrs: daytimeHrs,
+    });
+  }
+  fdcContributions.sort((a, b) => a.crew - b.crew || a.name.localeCompare(b.name));
 
   return {
     year,
@@ -176,6 +206,7 @@ function buildAnnualReport(year) {
     },
     coverage,
     crews,
+    fdcContributions,
     exclusions,
   };
 }

@@ -1,5 +1,5 @@
 {
-  "_comment": "ASVAC night-crew roster. Source: Crew_List_ASVAC_02282026 master copy last version.pdf. Edit annually when the crew list is reissued. Members listed under exclusions are stored in crew_members with the appropriate exclusion flag and surface only in the report footer.",
+  "_comment": "ASVAC night-crew roster. Source: Crew_List_ASVAC_02282026 master copy last version.pdf. Edit annually when the crew list is reissued. exclusions.type values: 'FDC' (Full Day Crew), 'leave' (medical/personnel), 'probationary' (not yet eligible for full night-crew totals). Excluded members surface only in the report footer; FDC members with daytime rides also appear in the FDC daytime contributions section.",
   "version": "2024-01-08",
   "crews": {
     "1": [
@@ -22,40 +22,40 @@
     "3": [
       { "name": "Nisha Nambiar",    "rank": "EMT", "role": "Crew Chief"  },
       { "name": "Shijo Zacharias",  "rank": "EMT", "role": "Driver"      },
-      { "name": "Patrick Smith",    "rank": "EMT", "role": "Driver"      },
-      { "name": "Susan Moskowitz",  "rank": "EMR", "role": "Driver"      },
-      { "name": "Yu Zhou",          "rank": "EMS", "role": "Non-Driver"  },
-      { "name": "Jakub Olszowski",  "rank": "EMS", "role": "Non-Driver"  }
+      { "name": "Susan Moskowitz",  "rank": "EMR", "role": "Driver"      }
     ],
     "4": [
       { "name": "Nishith Shah",     "rank": "EMT", "role": "Crew Chief"  },
       { "name": "Roshan Jhunja",    "rank": "EMR", "role": "Driver"      },
-      { "name": "Jing Chen",        "rank": "EMS", "role": "Driver"      },
-      { "name": "Alexis Ablezer",   "rank": "EMS", "role": "Non-Driver"  }
+      { "name": "Jing Chen",        "rank": "EMS", "role": "Driver"      }
     ],
     "5": [
       { "name": "Tony Rabadi",      "rank": "EMT", "role": "Crew Chief"  },
       { "name": "Greg Khitrov",     "rank": "EMT", "role": "Crew Chief"  },
       { "name": "Kaushik Mody",     "rank": "EMT", "role": "Driver"      },
-      { "name": "Erica Rosenfeld",  "rank": "EMR", "role": "Driver"      },
-      { "name": "Richard Ablezer",  "rank": "EMS", "role": "Non-Driver"  }
+      { "name": "Erica Rosenfeld",  "rank": "EMR", "role": "Driver"      }
     ],
     "6": [
       { "name": "Craig Ascher",     "rank": "EMT", "role": "Crew Chief"  },
       { "name": "Michelle Moses",   "rank": "EMT", "role": "Driver"      },
       { "name": "Juan Wiley",       "rank": "EMT", "role": "Non-Driver"  },
       { "name": "Siddharth Arora",  "rank": "EMR", "role": "Driver"      },
-      { "name": "Divya Singal",     "rank": "EMR", "role": "Non-Driver"  },
-      { "name": "Kasime Mirsky",    "rank": "EMS", "role": "Non-Driver"  }
+      { "name": "Divya Singal",     "rank": "EMR", "role": "Non-Driver"  }
     ]
   },
   "exclusions": [
-    { "name": "John Clear",        "crew": 3, "rank": "EMT", "role": "Crew Chief", "type": "FDC"   },
-    { "name": "Christopher Rich",  "crew": 4, "rank": "EMT", "role": "EMT",        "type": "FDC"   },
-    { "name": "Morry Silbiger",    "crew": 5, "rank": "EMT", "role": "Driver",     "type": "FDC"   },
-    { "name": "Patricia Leone",    "crew": 5, "rank": "EMS", "role": "Driver",     "type": "FDC"   },
-    { "name": "Roy Haddad",        "crew": 5, "rank": "EMS", "role": "Driver",     "type": "FDC"   },
-    { "name": "Andy DiJusto",      "crew": 5, "rank": "EMR", "role": "Driver",     "type": "leave" },
-    { "name": "Alan Greenwald",    "crew": 2, "rank": "EMT", "role": "Driver",     "type": "leave" }
+    { "name": "John Clear",        "crew": 3, "rank": "EMT", "role": "Crew Chief", "type": "FDC"          },
+    { "name": "Christopher Rich",  "crew": 4, "rank": "EMT", "role": "EMT",        "type": "FDC"          },
+    { "name": "Morry Silbiger",    "crew": 5, "rank": "EMT", "role": "Driver",     "type": "FDC"          },
+    { "name": "Patricia Leone",    "crew": 5, "rank": "EMS", "role": "Driver",     "type": "FDC"          },
+    { "name": "Roy Haddad",        "crew": 5, "rank": "EMS", "role": "Driver",     "type": "FDC"          },
+    { "name": "Andy DiJusto",      "crew": 5, "rank": "EMR", "role": "Driver",     "type": "leave"        },
+    { "name": "Alan Greenwald",    "crew": 2, "rank": "EMT", "role": "Driver",     "type": "leave"        },
+    { "name": "Patrick Smith",     "crew": 3, "rank": "EMT", "role": "Driver",     "type": "probationary" },
+    { "name": "Yu Zhou",           "crew": 3, "rank": "EMS", "role": "Non-Driver", "type": "probationary" },
+    { "name": "Jakub Olszowski",   "crew": 3, "rank": "EMS", "role": "Non-Driver", "type": "probationary" },
+    { "name": "Alexis Ablezer",    "crew": 4, "rank": "EMS", "role": "Non-Driver", "type": "probationary" },
+    { "name": "Richard Ablezer",   "crew": 5, "rank": "EMS", "role": "Non-Driver", "type": "probationary" },
+    { "name": "Kasime Mirsky",     "crew": 6, "rank": "EMS", "role": "Non-Driver", "type": "probationary" }
   ]
 }

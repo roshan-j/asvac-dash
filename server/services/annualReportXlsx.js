@@ -290,6 +290,100 @@ async function buildAnnualReportXlsxBuffer(report) {
     });
   }
 
+  // ── FDC daytime contributions ─────────────────────────────────────────────
+  // Full Day Crew members don't take night shifts but DO ride during the day.
+  // Show their daytime credit on its own line so it's visible alongside the
+  // night-crew totals. Only members with at least one daytime ride appear.
+  if (report.fdcContributions && report.fdcContributions.length > 0) {
+    rowIdx++; // spacer
+
+    mergeAndStyle(ws, rowIdx, 1, COL_COUNT,
+      'Full Day Crew — daytime contributions (no night-shift hours)', {
+        font: fnt(true, NAVY, 11),
+        fillArgb: BLUE_BAND,
+        alignment: { horizontal: 'left', vertical: 'middle' },
+        border: allBorders,
+      });
+    rowIdx++;
+
+    report.fdcContributions.forEach((m, idx) => {
+      const evenRow = idx % 2 === 0;
+      const rowFill = evenRow ? ALT_ROW : null;
+
+      // Member, Rank, Role columns (with crew number appended to role for context)
+      const roleWithCrew = m.role ? `${m.role} (Crew ${m.crew})` : `Crew ${m.crew}`;
+      [m.name, m.rank ?? '', roleWithCrew].forEach((v, i) => {
+        const cell = ws.getCell(rowIdx, i + 1);
+        cell.value = v;
+        styleCell(cell, {
+          font: fnt(false, TEXT),
+          fillArgb: rowFill,
+          alignment: { horizontal: 'left', vertical: 'middle', indent: i === 0 ? 1 : 0 },
+          border: allBorders,
+        });
+      });
+
+      // Months Jan-Dec — empty for FDC (they don't have night hours)
+      for (let i = 0; i < 12; i++) {
+        const cell = ws.getCell(rowIdx, i + 4);
+        cell.value = null;
+        styleCell(cell, {
+          font: fnt(false, TEXT),
+          fillArgb: rowFill,
+          alignment: { horizontal: 'right', vertical: 'middle' },
+          numFmt: HIDE_ZERO,
+          border: allBorders,
+        });
+      }
+
+      // Nights = 0
+      const nCell = ws.getCell(rowIdx, 16);
+      nCell.value = null;
+      styleCell(nCell, {
+        font: fnt(false, TEXT),
+        fillArgb: rowFill,
+        alignment: { horizontal: 'right', vertical: 'middle' },
+        numFmt: HIDE_ZERO,
+        border: allBorders,
+      });
+
+      // Daytime rides
+      const drCell = ws.getCell(rowIdx, 17);
+      drCell.value = m.daytimeRides;
+      styleCell(drCell, {
+        font: fnt(false, TEXT),
+        fillArgb: rowFill,
+        alignment: { horizontal: 'right', vertical: 'middle' },
+        numFmt: HIDE_ZERO,
+        border: allBorders,
+      });
+
+      // Daytime hrs
+      const dCell = ws.getCell(rowIdx, 18);
+      dCell.value = m.daytimeHrs;
+      styleCell(dCell, {
+        font: fnt(false, TEXT),
+        fillArgb: rowFill,
+        alignment: { horizontal: 'right', vertical: 'middle' },
+        numFmt: HIDE_ZERO,
+        border: allBorders,
+      });
+
+      // Total hrs (= daytime hrs only)
+      const tCell = ws.getCell(rowIdx, 19);
+      tCell.value = m.totalHrs;
+      styleCell(tCell, {
+        font: fnt(true, TEXT),
+        fillArgb: rowFill,
+        alignment: { horizontal: 'right', vertical: 'middle' },
+        numFmt: HIDE_ZERO,
+        border: allBorders,
+      });
+
+      rowIdx++;
+    });
+  }
+
   rowIdx++; // spacer
 
   // ── Notes & exclusions footer ─────────────────────────────────────────────
@@ -316,6 +410,17 @@ async function buildAnnualReportXlsxBuffer(report) {
     alignment: { horizontal: 'left', vertical: 'top', wrapText: true },
   });
   rowIdx++;
+
+  if (report.exclusions.probationary && report.exclusions.probationary.length > 0) {
+    const probLine = 'Probationary members (no line items — not yet eligible for full night-crew totals): ' +
+      fmtList(report.exclusions.probationary) + '.';
+    mergeAndStyle(ws, rowIdx, 1, COL_COUNT, probLine, {
+      font: fnt(false, TEXT, 10),
+      alignment: { horizontal: 'left', vertical: 'top', wrapText: true },
+    });
+    ws.getRow(rowIdx).height = 28;
+    rowIdx++;
+  }
 
   const cycleLine = 'Cycle: Crews rotate on a 6-crew, 3-night cycle (each crew on call for 3 consecutive nights every 18 days).';
   mergeAndStyle(ws, rowIdx, 1, COL_COUNT, cycleLine, {
