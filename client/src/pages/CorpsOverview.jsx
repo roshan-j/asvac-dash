@@ -102,9 +102,14 @@ export default function CorpsOverview() {
     );
   }
 
+  // Annual Report always reports on the last completed calendar year —
+  // decoupled from the month/year selector (which controls monthly data).
+  // The button label spells the year out so the scope is unambiguous.
+  const lastFullYear = now.getFullYear() - 1;
+
   function handleOpenAnnualInSheets() {
     return openInSheets(
-      `/api/reports/annual-in-sheets?year=${year}`,
+      `/api/reports/annual-in-sheets?year=${lastFullYear}`,
       setOpeningAnnualSheets,
       'Could not open annual report in Sheets',
     );
@@ -175,9 +180,9 @@ export default function CorpsOverview() {
             onClick={handleOpenAnnualInSheets}
             disabled={openingAnnualSheets}
             style={styles.annualBtn}
-            title={`Upload ${year} night-crew hours report (full year) to Google Sheets`}
+            title={`Upload the full ${lastFullYear} night-crew hours report to Google Sheets`}
           >
-            {openingAnnualSheets ? '⏳' : '📅'} {openingAnnualSheets ? 'Opening…' : 'Annual Report'}
+            {openingAnnualSheets ? '⏳' : '📅'} {openingAnnualSheets ? 'Opening…' : `Annual Report (${lastFullYear})`}
           </button>
         </div>
       </div>

@@ -14,10 +14,10 @@ const MONTH_LABELS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct
 const HEADER_LABELS = [
   'Member', 'Rank', 'Role',
   ...MONTH_LABELS,
-  'Nights', 'Daytime hrs', 'Total hrs',
+  'Nights', 'Daytime rides', 'Daytime hrs', 'Total hrs',
 ];
 
-const COL_COUNT = HEADER_LABELS.length; // 18
+const COL_COUNT = HEADER_LABELS.length; // 19
 
 // ─── Style palette (matches the PDF and the monthly report's blue ramp) ──────
 const NAVY        = 'FF1F4E79';
@@ -67,8 +67,9 @@ async function buildAnnualReportXlsxBuffer(report) {
     { width: 12 }, // C  Role
     ...new Array(12).fill({ width: 6 }), // D-O  Jan-Dec
     { width: 7  }, // P  Nights
-    { width: 12 }, // Q  Daytime hrs
-    { width: 10 }, // R  Total hrs
+    { width: 13 }, // Q  Daytime rides
+    { width: 12 }, // R  Daytime hrs
+    { width: 10 }, // S  Total hrs
   ];
 
   let rowIdx = 1;
@@ -252,8 +253,19 @@ async function buildAnnualReportXlsxBuffer(report) {
         border: allBorders,
       });
 
-      // Daytime hrs
-      const dCell = ws.getCell(rowIdx, 17);
+      // Daytime rides (count) — multiplied by 2 to give Daytime hrs
+      const drCell = ws.getCell(rowIdx, 17);
+      drCell.value = m.daytimeRides;
+      styleCell(drCell, {
+        font: fnt(false, TEXT),
+        fillArgb: rowFill,
+        alignment: { horizontal: 'right', vertical: 'middle' },
+        numFmt: HIDE_ZERO,
+        border: allBorders,
+      });
+
+      // Daytime hrs (= Daytime rides × 2)
+      const dCell = ws.getCell(rowIdx, 18);
       dCell.value = m.daytimeHrs;
       styleCell(dCell, {
         font: fnt(false, TEXT),
@@ -264,7 +276,7 @@ async function buildAnnualReportXlsxBuffer(report) {
       });
 
       // Total hrs (bold)
-      const tCell = ws.getCell(rowIdx, 18);
+      const tCell = ws.getCell(rowIdx, 19);
       tCell.value = m.totalHrs;
       styleCell(tCell, {
         font: fnt(true, TEXT),
