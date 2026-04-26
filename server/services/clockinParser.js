@@ -149,8 +149,11 @@ function importClockinData(buffer, filename, batchId) {
     throw new Error('No valid sessions found. Check that this is a TimeStation export with a "Call Credit" device.');
   }
 
-  // Try to find existing member by name (normalized), create if not found
-  const findByName = db.prepare(`SELECT id FROM members WHERE name = ?`);
+  // Routing: alias table → exact name → create. Same pattern as esoParser
+  // and sheetsService — keeps imports landing on the canonical member after
+  // renames or duplicate consolidations.
+  const lookupAlias  = db.prepare(`SELECT member_id AS id FROM member_aliases WHERE alias = lower(?)`);
+  const findByName   = db.prepare(`SELECT id FROM members WHERE name = ?`);
   const insertMember = db.prepare(`
     INSERT INTO members (name) VALUES (?)
     ON CONFLICT(name) DO UPDATE SET name = excluded.name
@@ -168,11 +171,10 @@ function importClockinData(buffer, filename, batchId) {
 
   const run = db.transaction(() => {
     for (const session of sessions) {
-      // Look up or create member by normalized name
-      let row = findByName.get(session.name);
-      if (!row) {
-        row = insertMember.get(session.name);
-      }
+      // Look up or create member: alias → exact → create
+      let row = lookupAlias.get(session.name)
+             || findByName.get(session.name)
+             || insertMember.get(session.name);
       if (!row) continue;
 
       membersSeen.add(session.name);
