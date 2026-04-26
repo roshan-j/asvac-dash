@@ -85,7 +85,7 @@ async function buildAnnualReportXlsxBuffer(report) {
   rowIdx++;
 
   mergeAndStyle(ws, rowIdx, 1, COL_COUNT,
-    `${report.year} Night-Crew Hours Report — 10:00 PM – 6:00 AM Shift`,
+    `${report.year} Crew Hours Report — Including Daytime Rides and Night shifts`,
     {
       font: fnt(false, MUTED, 11),
       alignment: { horizontal: 'center', vertical: 'middle' },

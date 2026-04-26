@@ -95,10 +95,23 @@ function findExistingMemberId(rosterName) {
   return null;
 }
 
-function getOrCreateMember(rosterName) {
-  const matchedId = findExistingMemberId(rosterName);
+/**
+ * Resolve a roster name to a member id, creating one if no match exists.
+ * Honors an optional nameAliases mapping (rosterName → ESO/canonical name)
+ * passed in from crew_roster.json — useful when the corps prefers a name
+ * that differs from what ESO writes (e.g. "Haitham Rabadi" ↔ "Tony Rabadi").
+ */
+function getOrCreateMember(rosterName, nameAliases = {}) {
+  // If the roster name has an explicit alias mapping, use the alias name
+  // for the existing-member lookup (so we route "Haitham Rabadi" to whoever
+  // is stored as "Tony Rabadi"), but keep rosterName for the alias row and
+  // the crew_members.display_name.
+  const lookupName = nameAliases[rosterName] || rosterName;
+
+  const matchedId = findExistingMemberId(lookupName);
   if (matchedId) {
     insertAlias.run(rosterName, matchedId);
+    if (lookupName !== rosterName) insertAlias.run(lookupName, matchedId);
     return { id: matchedId };
   }
   return insertMember.get(rosterName);
@@ -115,7 +128,8 @@ function loadRoster() {
  * Seed crew_members from crew_roster.json. Returns { active, excluded }.
  */
 function seedCrewRoster() {
-  const roster = loadRoster();
+  const roster      = loadRoster();
+  const nameAliases = roster.nameAliases || {};
 
   const wipe = db.prepare('DELETE FROM crew_members');
   const insert = db.prepare(`
@@ -137,7 +151,7 @@ function seedCrewRoster() {
     for (const [crewStr, members] of Object.entries(roster.crews || {})) {
       const crewNum = parseInt(crewStr, 10);
       members.forEach((m, idx) => {
-        const row = getOrCreateMember(m.name);
+        const row = getOrCreateMember(m.name, nameAliases);
         if (row) {
           insert.run(row.id, crewNum, m.rank || null, m.role || null, null, idx, m.name);
           active++;
@@ -146,7 +160,7 @@ function seedCrewRoster() {
     }
 
     for (const ex of roster.exclusions || []) {
-      const row = getOrCreateMember(ex.name);
+      const row = getOrCreateMember(ex.name, nameAliases);
       if (row) {
         insert.run(row.id, ex.crew, ex.rank || null, ex.role || null, ex.type || 'leave', 999, ex.name);
         excluded++;
