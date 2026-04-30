@@ -24,6 +24,7 @@ db.exec(`
     name        TEXT    NOT NULL UNIQUE,
     email       TEXT,
     status      TEXT    DEFAULT 'active',   -- active | inactive
+    member_type TEXT,                       -- 'adult' | 'college' | 'both'
     joined_date TEXT,
     created_at  TEXT    DEFAULT (datetime('now'))
   );
@@ -90,5 +91,9 @@ db.exec(`
     error_msg   TEXT
   );
 `);
+
+// Migration: add member_type to pre-existing members tables.
+// CREATE TABLE above already includes it for fresh installs.
+try { db.exec("ALTER TABLE members ADD COLUMN member_type TEXT"); } catch (_) {}
 
 module.exports = db;
