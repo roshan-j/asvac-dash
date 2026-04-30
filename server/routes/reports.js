@@ -27,6 +27,8 @@ router.get('/monthly-print', (req, res) => {
       : '';
 
     // ── Pull per-member data for the month ─────────────────────────────────────
+    // Riding-related activity only: ESO call points, pin pad (Call Credit)
+    // entries, and shift schedule sign-ups.
     const rows = db.prepare(`
       SELECT
         m.id,
@@ -34,9 +36,7 @@ router.get('/monthly-print', (req, res) => {
         m.member_type,
         COALESCE(r.call_pts,  0) AS callPts,
         COALESCE(s.schedule,  0) AS schedule,
-        COALESCE(n.call_credit, 0) AS callCredit,
-        COALESCE(mt.meeting_cnt,  0) AS meetingCnt,
-        COALESCE(tr.training_cnt, 0) AS trainingCnt
+        COALESCE(n.call_credit, 0) AS callCredit
       FROM members m
       LEFT JOIN (
         SELECT member_id, SUM(points) AS call_pts
@@ -56,29 +56,15 @@ router.get('/monthly-print', (req, res) => {
         WHERE activity_date BETWEEN ? AND ?
         GROUP BY member_id
       ) n ON n.member_id = m.id
-      LEFT JOIN (
-        SELECT member_id, COUNT(*) AS meeting_cnt
-        FROM attendance_events
-        WHERE year = ? AND month = ? AND type = 'meeting'
-        GROUP BY member_id
-      ) mt ON mt.member_id = m.id
-      LEFT JOIN (
-        SELECT member_id, COUNT(*) AS training_cnt
-        FROM attendance_events
-        WHERE year = ? AND month = ? AND type = 'training'
-        GROUP BY member_id
-      ) tr ON tr.member_id = m.id
       WHERE m.status = 'active'
         ${typeClause}
         AND (
           COALESCE(r.call_pts,    0) > 0 OR
           COALESCE(s.schedule,    0) > 0 OR
-          COALESCE(n.call_credit, 0) > 0 OR
-          COALESCE(mt.meeting_cnt,  0) > 0 OR
-          COALESCE(tr.training_cnt, 0) > 0
+          COALESCE(n.call_credit, 0) > 0
         )
       ORDER BY m.name
-    `).all(start, end, start, end, start, end, year, month, year, month);
+    `).all(start, end, start, end, start, end);
 
     // ── Determine display names (first name only; full name if duplicate) ───────
     const firstNames = {};
@@ -93,14 +79,10 @@ router.get('/monthly-print', (req, res) => {
 
       const callPts    = row.callPts;
       const schedule   = row.schedule;
-      const eventStby  = 0;  // not yet tracked
       const callCredit = row.callCredit;
-      const totalRiding = callPts + schedule + eventStby + callCredit;
-      const meeting    = row.meetingCnt;
-      const training   = row.trainingCnt;
-      const totals     = totalRiding + meeting + training;
+      const totals     = callPts + schedule + callCredit;
 
-      return { displayName, callPts, schedule, eventStby, callCredit, totalRiding, meeting, training, totals };
+      return { displayName, callPts, schedule, callCredit, totals };
     });
 
     // ── Sort alpha by display name ─────────────────────────────────────────────
@@ -115,23 +97,15 @@ router.get('/monthly-print', (req, res) => {
       '',
       'Call Points (ESO)',
       'Schedule',
-      'Event - Standby',
-      'Call Credit - Pingback',
+      'Call Credit - PIN PAD',
       'Total Riding Points',
-      'Meeting',
-      'Training',
-      'Totals',
     ];
 
     const dataRows = displayRows.map(r => [
       r.displayName,
       r.callPts    || '',
       r.schedule   || '',
-      r.eventStby  || '',
       r.callCredit || '',
-      r.totalRiding || '',
-      r.meeting    || '',
-      r.training   || '',
       r.totals     || '',
     ]);
 
@@ -143,12 +117,8 @@ router.get('/monthly-print', (req, res) => {
       { wch: 22 }, // Name
       { wch: 18 }, // Call Points
       { wch: 10 }, // Schedule
-      { wch: 15 }, // Event - Standby
       { wch: 22 }, // Call Credit
       { wch: 20 }, // Total Riding
-      { wch: 10 }, // Meeting
-      { wch: 10 }, // Training
-      { wch: 10 }, // Totals
     ];
 
     const wb = XLSX.utils.book_new();

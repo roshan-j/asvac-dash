@@ -85,6 +85,7 @@ export default function CorpsOverview() {
   const MONTH_OPTS = Array.from({ length: 12 }, (_, i) => i + 1);
 
   return (
+    <>
     <div style={styles.page}>
       <div style={styles.header}>
         <h1 style={styles.h1}>Corps Overview</h1>
@@ -197,6 +198,7 @@ export default function CorpsOverview() {
     {showAttendance && (
       <AttendanceUploadModal onClose={() => setShowAttendance(false)} />
     )}
+    </>
   );
 }
 
