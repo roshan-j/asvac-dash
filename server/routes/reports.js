@@ -97,7 +97,7 @@ router.get('/monthly-print', (req, res) => {
       '',
       'Call Points (ESO)',
       'Schedule',
-      'Call Credit - Pingback',
+      'Call Credit - PIN PAD',
       'Total Riding Points',
     ];
 
