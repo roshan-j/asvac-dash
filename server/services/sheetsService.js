@@ -28,9 +28,25 @@ const https    = require('https');
 const Papa     = require('papaparse');
 const db       = require('../db/database');
 
-const SHEET_ID       = process.env.GOOGLE_SHEET_ID;
-const API_KEY        = process.env.GOOGLE_API_KEY;
+const SHEET_ID         = process.env.GOOGLE_SHEET_ID;
+const ARCHIVE_SHEET_ID = process.env.GOOGLE_SHEET_ARCHIVE_ID;
+const API_KEY          = process.env.GOOGLE_API_KEY;
 const POINTS_PER_SHIFT = 1;
+
+// Sources to sync. Order matters: ARCHIVE FIRST, ACTIVE SECOND.
+// `tabPrefix` namespaces shift_tab values for traceability. Both sheets often
+// hold a copy of the same recent weekly tab (e.g. "4/12-4/18"), but the active
+// dutyboard is the source of truth for current sign-ups. Because the per-tab
+// wipe deletes by shift_date range, processing active second lets it override
+// any archive copy for shared dates while leaving archive-only weeks untouched.
+function getSheetSources() {
+  const sources = [];
+  if (ARCHIVE_SHEET_ID) {
+    sources.push({ id: ARCHIVE_SHEET_ID, label: 'archive', tabPrefix: 'archive:' });
+  }
+  sources.push({ id: SHEET_ID, label: 'active', tabPrefix: '' });
+  return sources;
+}
 
 // Identifies a valid weekly schedule tab name vs PERSONNEL, Sheet39, KEY, etc.
 // Matches patterns like "3/15-3/21", "06/16-6/22", "12/28-1/3"
@@ -87,15 +103,15 @@ function parseDate(raw) {
 
 // ─── List all tabs via Sheets API v4 (free API key, public sheet) ─────────────
 
-async function listAllTabs() {
-  if (!SHEET_ID) throw new Error('GOOGLE_SHEET_ID is not set in .env');
-  if (!API_KEY)  throw new Error(
+async function listAllTabs(sheetId = SHEET_ID) {
+  if (!sheetId) throw new Error('Sheet ID was not provided to listAllTabs');
+  if (!API_KEY) throw new Error(
     'GOOGLE_API_KEY is not set in .env.\n' +
     'Get a free key at console.cloud.google.com → APIs & Services → Credentials.\n' +
     'Enable the "Google Sheets API" and create an API Key.'
   );
 
-  const url = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}` +
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}` +
               `?key=${API_KEY}&fields=sheets.properties(title)`;
   const { status, body } = await httpGet(url);
 
@@ -110,8 +126,8 @@ async function listAllTabs() {
 
 // ─── Fetch one tab as CSV via the public gviz endpoint ────────────────────────
 
-async function fetchTabCsv(tabName) {
-  const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}` +
+async function fetchTabCsv(tabName, sheetId = SHEET_ID) {
+  const url = `https://docs.google.com/spreadsheets/d/${sheetId}` +
               `/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(tabName)}`;
   const { status, body } = await httpGet(url);
   return status === 200 ? body : null;
@@ -189,13 +205,7 @@ function parseTabCsv(csvText, tabName) {
 async function syncDutyboard() {
   if (!SHEET_ID) throw new Error('GOOGLE_SHEET_ID is not set in .env');
 
-  const allTabs     = await listAllTabs();
-  const weeklyTabs  = allTabs.filter(t => WEEKLY_TAB_RE.test(t));
-
-  if (weeklyTabs.length === 0) throw new Error(
-    'No weekly schedule tabs found. ' +
-    'Expected tabs named like "3/15-3/21". Check GOOGLE_SHEET_ID in .env.'
-  );
+  const sources = getSheetSources();
 
   // Alias lookup — maps alternate spellings to canonical member IDs
   const lookupAlias  = db.prepare('SELECT member_id FROM member_aliases WHERE alias = lower(?)');
@@ -213,9 +223,17 @@ async function syncDutyboard() {
     return insertMember.get(name);
   }
 
-  const deleteTab = db.prepare(`
-    DELETE FROM shift_signups WHERE shift_tab = ?
-  `);
+  // Wipe by shift_date range instead of shift_tab name. The active and archive
+  // sheets reuse week-label tab names across years (e.g. "4/12-4/18" exists in
+  // both), so keying on shift_tab is ambiguous. Dates carry the year and the
+  // two sources cover non-overlapping date ranges, so this is unambiguous —
+  // and it correctly reaps removed sign-ups regardless of which source they
+  // originally came from (including legacy un-prefixed archive rows).
+  const deleteByDates = (dates) => {
+    if (!dates.length) return;
+    const placeholders = dates.map(() => '?').join(',');
+    db.prepare(`DELETE FROM shift_signups WHERE shift_date IN (${placeholders})`).run(...dates);
+  };
 
   const insertSignup = db.prepare(`
     INSERT OR IGNORE INTO shift_signups
@@ -224,35 +242,68 @@ async function syncDutyboard() {
   `);
 
   let totalSynced = 0;
-  const tabResults = [];
-  const errors     = [];
+  let tabsProcessed = 0;
+  const tabResults  = [];
+  const errors      = [];
+  const perSource   = [];
 
-  for (const tabName of weeklyTabs) {
+  for (const src of sources) {
+    let allTabs;
     try {
-      const csv = await fetchTabCsv(tabName);
-      if (!csv) {
-        errors.push(`${tabName}: could not fetch CSV`);
-        continue;
-      }
-
-      const signups = parseTabCsv(csv, tabName);
-
-      db.transaction(() => {
-        deleteTab.run(tabName);
-        for (const s of signups) {
-          const member = getOrCreateMember(s.memberName);
-          if (member) {
-            insertSignup.run(member.id, s.date, s.shiftTime, s.tabName);
-          }
-        }
-      })();
-
-      tabResults.push({ tab: tabName, signups: signups.length });
-      totalSynced += signups.length;
-
+      allTabs = await listAllTabs(src.id);
     } catch (err) {
-      errors.push(`${tabName}: ${err.message}`);
+      // A failed list should be reported but not block the other source.
+      errors.push(`${src.label} list: ${err.message}`);
+      perSource.push({ source: src.label, synced: 0, tabs: 0, error: err.message });
+      continue;
     }
+
+    const weeklyTabs = allTabs.filter(t => WEEKLY_TAB_RE.test(t));
+    if (weeklyTabs.length === 0) {
+      const msg = src.label === 'active'
+        ? 'No weekly schedule tabs found in active dutyboard. Check GOOGLE_SHEET_ID.'
+        : 'No weekly schedule tabs found in archive sheet. Check GOOGLE_SHEET_ARCHIVE_ID.';
+      errors.push(msg);
+      perSource.push({ source: src.label, synced: 0, tabs: 0, error: msg });
+      // For the active sheet this is fatal — the dashboard depends on it.
+      if (src.label === 'active') throw new Error(msg);
+      continue;
+    }
+
+    let sourceSynced = 0;
+
+    for (const tabName of weeklyTabs) {
+      const storedTab = `${src.tabPrefix}${tabName}`;
+      try {
+        const csv = await fetchTabCsv(tabName, src.id);
+        if (!csv) {
+          errors.push(`${src.label} ${tabName}: could not fetch CSV`);
+          continue;
+        }
+
+        const signups   = parseTabCsv(csv, tabName);
+        const tabDates  = [...new Set(signups.map(s => s.date))];
+
+        db.transaction(() => {
+          deleteByDates(tabDates);
+          for (const s of signups) {
+            const member = getOrCreateMember(s.memberName);
+            if (member) {
+              insertSignup.run(member.id, s.date, s.shiftTime, storedTab);
+            }
+          }
+        })();
+
+        tabResults.push({ source: src.label, tab: tabName, signups: signups.length });
+        totalSynced  += signups.length;
+        sourceSynced += signups.length;
+        tabsProcessed++;
+      } catch (err) {
+        errors.push(`${src.label} ${tabName}: ${err.message}`);
+      }
+    }
+
+    perSource.push({ source: src.label, synced: sourceSynced, tabs: weeklyTabs.length });
   }
 
   // Remove ghost members created by previous bad name extraction (no data anywhere).
@@ -274,8 +325,18 @@ async function syncDutyboard() {
     console.log(`[sheets] Removed ${cleaned.changes} orphan member record(s).`);
   }
 
-  console.log(`[sheets] Synced ${totalSynced} shift signups across ${tabResults.length} tabs.`);
-  return { synced: totalSynced, weeklyTabsFound: weeklyTabs.length, tabs: tabResults, errors };
+  const breakdown = perSource
+    .map(p => `${p.source}=${p.synced}/${p.tabs}${p.error ? ' ERR' : ''}`)
+    .join(', ');
+  console.log(`[sheets] Synced ${totalSynced} shift signups across ${tabsProcessed} tabs (${breakdown}).`);
+
+  return {
+    synced:        totalSynced,
+    weeklyTabsFound: tabsProcessed,
+    sources:       perSource,
+    tabs:          tabResults,
+    errors,
+  };
 }
 
 // ─── Query helpers ─────────────────────────────────────────────────────────────
