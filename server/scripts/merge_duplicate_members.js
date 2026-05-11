@@ -109,6 +109,8 @@ const REF_TABLES = [
   { name: 'nonriding_points',  uniqueCols: ['activity_date'] },
   { name: 'shift_signups',     uniqueCols: ['shift_date', 'shift_time'] },
   { name: 'attendance_events', uniqueCols: ['year', 'month', 'type'] },
+  { name: 'standby_events',    uniqueCols: ['event_date', 'event_name'] },
+  { name: 'officers',          uniqueCols: ['year'] },
   { name: 'email_logs',        uniqueCols: null },        // no member-related unique
   { name: 'member_aliases',    uniqueCols: null },        // alias is the unique key
   { name: 'crew_members',      uniqueCols: ['crew_number'] },

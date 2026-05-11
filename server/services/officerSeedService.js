@@ -12,7 +12,7 @@ const db = require('../db/database');
 // points_per_month defaults to 2 if omitted
 const OFFICERS_2026 = [
   { name: 'Nisha Nambiar',    points_per_month: 4 },   // id=54
-  { name: 'Tony Rabadi',      points_per_month: 4 },   // id=6,   alias: Tony Sari
+  { name: 'Haitham Rabadi',   points_per_month: 4 },   // id=6,   aliases: Tony Rabadi, Tony Sari
   { name: 'Melissa Jhunja'   },   // id=7,   already exists
   { name: 'Craig Ascher'     },   // id=13,  already exists
   { name: 'Roy Haddad'       },   // new

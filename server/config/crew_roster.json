@@ -1,9 +1,7 @@
 {
   "_comment": "ASVAC night-crew roster. Source: Crew_List_ASVAC_02282026 master copy last version.pdf. Edit annually when the crew list is reissued. exclusions.type values: 'FDC' (Full Day Crew), 'leave' (medical/personnel), 'probationary' (not yet eligible for full night-crew totals). nameAliases lets a roster name route to an existing DB member that's stored under a different name (e.g. ESO writes 'Tony' but the corps prefers 'Haitham').",
   "version": "2025-04-26",
-  "nameAliases": {
-    "Haitham Rabadi": "Tony Rabadi"
-  },
+  "nameAliases": {},
   "crews": {
     "1": [
       { "name": "Steve Greenfeld",  "rank": "EMT", "role": "Crew Chief"  },
