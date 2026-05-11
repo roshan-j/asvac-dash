@@ -16,21 +16,6 @@ const { buildAnnualReportXlsxBuffer }  = require('../services/annualReportXlsx')
 const { syncNightShifts }              = require('../services/nightShiftService');
 const { seedCrewRoster }               = require('../services/crewRosterService');
 
-// Shift-response multiplier — same logic as statsService.js
-const SHIFT_BONUS = 1.5;
-const MULTIPLIED_PTS = `
-  CASE
-    WHEN r.call_time IS NOT NULL AND EXISTS (
-      SELECT 1 FROM shift_signups ss
-      WHERE ss.member_id = r.member_id
-        AND ss.shift_date = r.call_date
-        AND CAST(REPLACE(r.call_time, ':', '') AS INTEGER)
-            >= CAST(SUBSTR(ss.shift_time, 1, 4) AS INTEGER)
-        AND CAST(REPLACE(r.call_time, ':', '') AS INTEGER)
-            <  CAST(SUBSTR(ss.shift_time, 6, 4) AS INTEGER)
-    ) THEN r.points * ${SHIFT_BONUS}
-    ELSE r.points
-  END`.trim();
 
 const AUTH_URL = `${process.env.SERVER_ORIGIN || 'http://localhost:3001'}/api/auth/google`;
 const needsAuthResponse = () => ({ needsAuth: true, authUrl: AUTH_URL });
@@ -75,20 +60,14 @@ async function buildMonthlyWorkbook(year, month, adultOnly = true) {
       COALESCE(try2.training_ytd,   0) AS trainingCntYtd
     FROM members m
     LEFT JOIN (
-      SELECT r.member_id, SUM(${MULTIPLIED_PTS}) AS call_pts
+      SELECT r.member_id, SUM(r.points) AS call_pts
       FROM riding_points r WHERE r.call_date BETWEEN ? AND ?
       GROUP BY r.member_id
     ) r ON r.member_id = m.id
     LEFT JOIN (
       SELECT member_id,
         SUM(
-          CASE
-            WHEN strftime('%w', shift_date) IN ('0','6')
-              AND CAST(SUBSTR(shift_time,1,4) AS INTEGER) >= 600
-              AND CAST(SUBSTR(shift_time,1,4) AS INTEGER) <  1200
-            THEN 1.0
-            ELSE (CAST(SUBSTR(shift_time,6,4) AS INTEGER) - CAST(SUBSTR(shift_time,1,4) AS INTEGER))/400.0
-          END
+          (CAST(SUBSTR(shift_time,6,4) AS INTEGER) - CAST(SUBSTR(shift_time,1,4) AS INTEGER)) / 100.0
         ) AS schedule
       FROM shift_signups WHERE shift_date BETWEEN ? AND ?
       GROUP BY member_id
@@ -115,20 +94,14 @@ async function buildMonthlyWorkbook(year, month, adultOnly = true) {
     ) tr ON tr.member_id = m.id
     LEFT JOIN officers of ON of.member_id = m.id AND of.year = ?
     LEFT JOIN (
-      SELECT r.member_id, SUM(${MULTIPLIED_PTS}) AS call_pts_ytd
+      SELECT r.member_id, SUM(r.points) AS call_pts_ytd
       FROM riding_points r WHERE r.call_date BETWEEN ? AND ?
       GROUP BY r.member_id
     ) ry ON ry.member_id = m.id
     LEFT JOIN (
       SELECT member_id,
         SUM(
-          CASE
-            WHEN strftime('%w', shift_date) IN ('0','6')
-              AND CAST(SUBSTR(shift_time,1,4) AS INTEGER) >= 600
-              AND CAST(SUBSTR(shift_time,1,4) AS INTEGER) <  1200
-            THEN 1.0
-            ELSE (CAST(SUBSTR(shift_time,6,4) AS INTEGER) - CAST(SUBSTR(shift_time,1,4) AS INTEGER))/400.0
-          END
+          (CAST(SUBSTR(shift_time,6,4) AS INTEGER) - CAST(SUBSTR(shift_time,1,4) AS INTEGER)) / 100.0
         ) AS schedule_ytd
       FROM shift_signups WHERE shift_date BETWEEN ? AND ?
       GROUP BY member_id
@@ -177,7 +150,7 @@ async function buildMonthlyWorkbook(year, month, adultOnly = true) {
     const schedule       = row.schedule;
     const eventStby      = row.eventStby;
     const callCredit     = row.callCredit;
-    const totalRiding    = Math.round(callPts + schedule + eventStby + callCredit);
+    const totalRiding    = Math.round(callPts + schedule + eventStby);
     const meeting        = row.meetingCnt  * 2;
     const training       = row.trainingCnt * 2;
     const officer        = row.officerPts;
@@ -216,8 +189,8 @@ async function buildMonthlyWorkbook(year, month, adultOnly = true) {
     { width: 14 }, // B  Call Points
     { width: 10 }, // C  Schedule
     { width: 14 }, // D  Event-Standby
-    { width: 20 }, // E  Call Credit - Pin Pad
-    { width: 18 }, // F  Total Riding
+    { width: 18 }, // E  Total Riding Points
+    { width: 20 }, // F  Call Credit - Pin Pad
     { width: 10 }, // G  Meeting
     { width: 10 }, // H  Training
     { width: 10 }, // I  Officers
@@ -251,7 +224,7 @@ async function buildMonthlyWorkbook(year, month, adultOnly = true) {
   // ── Header row ────────────────────────────────────────────────────────────
   const headers = [
     'Adult Member', 'Call Points (ESO)', 'Schedule', 'Event - Standby',
-    'Call Credit - Pin Pad', 'Total Riding Points', 'Meeting', 'Training',
+    'Total Riding Points', 'Call Credit - Pin Pad', 'Meeting', 'Training',
     'Officers', 'Totals', '',
     'YTD Meetings', 'YTD Training', 'YTD Riding', 'YTD Officers', 'YTD Other',
     '95 to Qualify',
@@ -267,6 +240,11 @@ async function buildMonthlyWorkbook(year, month, adultOnly = true) {
     else                 { cell.fill = fill(GOLD_HDR_BG); cell.font = fnt(true, GOLD_HDR); }
   });
 
+  // ── Pre-scan: do any Schedule values have a fractional component? ─────────
+  // Drives whether col C uses one-decimal or integer formatting (avoids ugly
+  // ".0" suffixes when every shift in the period was a whole-hour block).
+  const scheduleHasDecimals = displayRows.some(r => r.schedule % 1 !== 0);
+
   // ── Data rows ─────────────────────────────────────────────────────────────
   displayRows.forEach((r, i) => {
     const rowNum = i + 2;
@@ -274,8 +252,9 @@ async function buildMonthlyWorkbook(year, month, adultOnly = true) {
 
     const row = ws.addRow([
       r.displayName,
-      r.callPts, r.schedule, r.eventStby, r.callCredit,
-      0,           // F → formula
+      r.callPts, r.schedule, r.eventStby,
+      0,           // E → formula (Total Riding)
+      r.callCredit, // F → Pin Pad (shown, not in monthly subtotals)
       r.meeting, r.training, r.officer,
       0,           // J → formula
       null,        // K spacer
@@ -291,7 +270,7 @@ async function buildMonthlyWorkbook(year, month, adultOnly = true) {
         cell.fill      = fill(even ? 'FFF8F9FA' : 'FFFFFFFF');
       } else if (col <= 10) {
         cell.fill      = fill(even ? BLUE_EVEN : 'FFFFFFFF');
-        cell.font      = fnt([6, 10].includes(col));  // bold subtotals
+        cell.font      = fnt([5, 10].includes(col));  // bold subtotals
         cell.alignment = { horizontal: 'center', vertical: 'middle' };
         cell.numFmt    = HIDE_ZERO;
       } else if (col === 11) {
@@ -308,12 +287,12 @@ async function buildMonthlyWorkbook(year, month, adultOnly = true) {
       }
     });
 
-    // Column C (Schedule) — only col that can have 0.5 increments
-    row.getCell(3).numFmt = HALF_PT;
+    // Column C (Schedule) — show one decimal only if any row has a fractional value
+    row.getCell(3).numFmt = scheduleHasDecimals ? HALF_PT : HIDE_ZERO;
 
-    // Formula: F = Total Riding
-    const F = row.getCell(6);
-    F.value    = { formula: `B${rowNum}+C${rowNum}+D${rowNum}+E${rowNum}`, result: r.totalRiding };
+    // Formula: E = Total Riding (pin pad excluded from monthly subtotal)
+    const F = row.getCell(5);
+    F.value    = { formula: `B${rowNum}+C${rowNum}+D${rowNum}`, result: r.totalRiding };
     F.fill     = fill(even ? BLUE_EVEN : 'FFFFFFFF');
     F.font     = fnt(true);
     F.alignment= { horizontal: 'center', vertical: 'middle' };
@@ -321,7 +300,7 @@ async function buildMonthlyWorkbook(year, month, adultOnly = true) {
 
     // Formula: J = Totals
     const J = row.getCell(10);
-    J.value    = { formula: `F${rowNum}+G${rowNum}+H${rowNum}+I${rowNum}`, result: r.totals };
+    J.value    = { formula: `E${rowNum}+G${rowNum}+H${rowNum}+I${rowNum}`, result: r.totals };
     J.fill     = fill(even ? BLUE_EVEN : 'FFFFFFFF');
     J.font     = fnt(true);
     J.alignment= { horizontal: 'center', vertical: 'middle' };
@@ -335,6 +314,37 @@ async function buildMonthlyWorkbook(year, month, adultOnly = true) {
     Q.font     = fnt(true, passed ? 'FF155724' : 'FF721C24');
     Q.alignment= { horizontal: 'center', vertical: 'middle' };
     Q.numFmt   = HIDE_ZERO;
+  });
+
+  // ── Methodology footnote ──────────────────────────────────────────────────
+  ws.addRow([]);  // blank spacer
+
+  const FOOTNOTE_BG   = 'FFF8F9FA';
+  const FOOTNOTE_TEXT = 'FF444466';
+  const FOOTNOTE_HEAD = 'FF1B4F8A';
+
+  const footnoteLines = [
+    ['Methodology', true],
+    [`Call Points (ESO): Points from ESO ride records for calls responded to during the month.`, false],
+    [`Schedule: Points from dutyboard shift sign-ups. Each slot is credited at its full duration in hours (e.g. a 2-hour slot = 2 pts, a 4-hour slot = 4 pts).`, false],
+    [`Event-Standby: Points earned for staffing ASVAC standby events.`, false],
+    [`Call Credit (Pin Pad): Tracked for reference only on monthly reports — not included in monthly subtotals. Factored into the year-end qualify score under "YTD Other" (capped at 10 pts).`, false],
+    [`Meeting / Training: Each meeting or training session attended = 2 pts.`, false],
+    [`Officers: Monthly officer-position bonus per the current officers table.`, false],
+    [`95 to Qualify (YTD caps): Meetings ≤ 24 · Training ≤ 24 · Riding ≤ 80 · Officers ≤ 25 · Other ≤ 10. Members need ≥ 95 total to qualify.`, false],
+  ];
+
+  footnoteLines.forEach(([text, isHeader]) => {
+    const fRow = ws.addRow([text]);
+    fRow.height = isHeader ? 18 : 15;
+    const cell  = fRow.getCell(1);
+    cell.value  = text;
+    cell.font   = isHeader
+      ? { name: 'Calibri', size: 10, bold: true,  color: { argb: 'FFFFFFFF' } }
+      : { name: 'Calibri', size: 9,  bold: false, color: { argb: FOOTNOTE_TEXT }, italic: true };
+    cell.fill      = { type: 'pattern', pattern: 'solid', fgColor: { argb: isHeader ? FOOTNOTE_HEAD : FOOTNOTE_BG } };
+    cell.alignment = { horizontal: 'left', vertical: 'middle', indent: 1, wrapText: true };
+    ws.mergeCells(fRow.number, 1, fRow.number, 17);
   });
 
   const buf = await wb.xlsx.writeBuffer();
