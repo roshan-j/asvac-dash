@@ -27,15 +27,16 @@ router.get('/monthly-print', (req, res) => {
       : '';
 
     // ── Pull per-member data for the month ─────────────────────────────────────
-    // Riding-related activity only: ESO call points, pin pad (Call Credit)
-    // entries, and shift schedule sign-ups.
+    // Riding-related activity only: ESO call points, shift schedule sign-ups,
+    // special-event credit (Event - Standby), and pin pad (Call Credit) entries.
     const rows = db.prepare(`
       SELECT
         m.id,
         m.name,
         m.member_type,
-        COALESCE(r.call_pts,  0) AS callPts,
-        COALESCE(s.schedule,  0) AS schedule,
+        COALESCE(r.call_pts,    0) AS callPts,
+        COALESCE(s.schedule,    0) AS schedule,
+        COALESCE(e.event_pts,   0) AS eventStby,
         COALESCE(n.call_credit, 0) AS callCredit
       FROM members m
       LEFT JOIN (
@@ -51,6 +52,12 @@ router.get('/monthly-print', (req, res) => {
         GROUP BY member_id
       ) s ON s.member_id = m.id
       LEFT JOIN (
+        SELECT member_id, SUM(points) AS event_pts
+        FROM event_credits
+        WHERE event_date BETWEEN ? AND ?
+        GROUP BY member_id
+      ) e ON e.member_id = m.id
+      LEFT JOIN (
         SELECT member_id, SUM(points) AS call_credit
         FROM nonriding_points
         WHERE activity_date BETWEEN ? AND ?
@@ -61,10 +68,11 @@ router.get('/monthly-print', (req, res) => {
         AND (
           COALESCE(r.call_pts,    0) > 0 OR
           COALESCE(s.schedule,    0) > 0 OR
+          COALESCE(e.event_pts,   0) > 0 OR
           COALESCE(n.call_credit, 0) > 0
         )
       ORDER BY m.name
-    `).all(start, end, start, end, start, end);
+    `).all(start, end, start, end, start, end, start, end);
 
     // ── Determine display names (first name only; full name if duplicate) ───────
     const firstNames = {};
@@ -79,10 +87,11 @@ router.get('/monthly-print', (req, res) => {
 
       const callPts    = row.callPts;
       const schedule   = row.schedule;
+      const eventStby  = row.eventStby;
       const callCredit = row.callCredit;
-      const totals     = callPts + schedule + callCredit;
+      const totals     = callPts + schedule + eventStby + callCredit;
 
-      return { displayName, callPts, schedule, callCredit, totals };
+      return { displayName, callPts, schedule, eventStby, callCredit, totals };
     });
 
     // ── Sort alpha by display name ─────────────────────────────────────────────
@@ -97,6 +106,7 @@ router.get('/monthly-print', (req, res) => {
       '',
       'Call Points (ESO)',
       'Schedule',
+      'Event - Standby',
       'Call Credit - PIN PAD',
       'Total Riding Points',
     ];
@@ -105,6 +115,7 @@ router.get('/monthly-print', (req, res) => {
       r.displayName,
       r.callPts    || '',
       r.schedule   || '',
+      r.eventStby  || '',
       r.callCredit || '',
       r.totals     || '',
     ]);
@@ -117,6 +128,7 @@ router.get('/monthly-print', (req, res) => {
       { wch: 22 }, // Name
       { wch: 18 }, // Call Points
       { wch: 10 }, // Schedule
+      { wch: 15 }, // Event - Standby
       { wch: 22 }, // Call Credit
       { wch: 20 }, // Total Riding
     ];

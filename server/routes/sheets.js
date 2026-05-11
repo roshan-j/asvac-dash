@@ -5,12 +5,24 @@
 const express = require('express');
 const router  = express.Router();
 const { syncDutyboard, getShifts } = require('../services/sheetsService');
+const { syncEventCredits }         = require('../services/eventsService');
 
-// POST /api/sheets/sync
+// POST /api/sheets/sync — dutyboards + event credit
 router.post('/sync', async (req, res) => {
   try {
-    const result = await syncDutyboard();
-    res.json({ success: true, ...result });
+    const dutyboard = await syncDutyboard();
+    const events    = await syncEventCredits();
+    res.json({ success: true, dutyboard, events });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/sheets/sync-events — events only
+router.post('/sync-events', async (req, res) => {
+  try {
+    const events = await syncEventCredits();
+    res.json({ success: true, ...events });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

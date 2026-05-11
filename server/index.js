@@ -10,6 +10,7 @@ const sheetsRoutes  = require('./routes/sheets');
 const reportsRoutes    = require('./routes/reports');
 const attendanceRoutes = require('./routes/attendance');
 const { syncDutyboard }       = require('./services/sheetsService');
+const { syncEventCredits }    = require('./services/eventsService');
 const { syncPersonnelTypes }  = require('./services/personnelSyncService');
 
 const app  = express();
@@ -54,6 +55,15 @@ async function runSync(label = 'scheduled') {
     if (result.errors.length) console.warn('[sheets] Errors:', result.errors);
   } catch (err) {
     console.error(`[sheets:${label}] Sync failed:`, err.message);
+  }
+
+  if (!process.env.GOOGLE_EVENTS_SHEET_ID) return;
+  try {
+    const ev = await syncEventCredits();
+    console.log(`[events:${label}] ${ev.synced} credits synced across ${ev.tabs.length} tab(s)`);
+    if (ev.errors.length) console.warn('[events] Errors:', ev.errors);
+  } catch (err) {
+    console.error(`[events:${label}] Sync failed:`, err.message);
   }
 }
 

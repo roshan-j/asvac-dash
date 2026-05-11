@@ -90,6 +90,19 @@ db.exec(`
     success     INTEGER DEFAULT 1,
     error_msg   TEXT
   );
+
+  -- Special-events / awareness credit, populated from the Events Points Log sheet.
+  -- One row per (member, event_date, event_name). Re-syncs are idempotent.
+  CREATE TABLE IF NOT EXISTS event_credits (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    member_id    INTEGER NOT NULL REFERENCES members(id),
+    event_date   TEXT    NOT NULL,   -- ISO YYYY-MM-DD; the month this credit counts toward
+    event_name   TEXT    NOT NULL,
+    points       REAL    DEFAULT 1,
+    source_tab   TEXT,
+    synced_at    TEXT    DEFAULT (datetime('now')),
+    UNIQUE(member_id, event_date, event_name)
+  );
 `);
 
 // Migration: add member_type to pre-existing members tables.

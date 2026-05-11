@@ -28,8 +28,9 @@ const https    = require('https');
 const Papa     = require('papaparse');
 const db       = require('../db/database');
 
-const SHEET_ID       = process.env.GOOGLE_SHEET_ID;
-const API_KEY        = process.env.GOOGLE_API_KEY;
+const SHEET_ID         = process.env.GOOGLE_SHEET_ID;          // active dutyboard
+const ARCHIVE_SHEET_ID = process.env.GOOGLE_ARCHIVE_SHEET_ID;  // archive dutyboard
+const API_KEY          = process.env.GOOGLE_API_KEY;
 const POINTS_PER_SHIFT = 1;
 
 // Identifies a valid weekly schedule tab name vs PERSONNEL, Sheet39, KEY, etc.
@@ -87,15 +88,15 @@ function parseDate(raw) {
 
 // ─── List all tabs via Sheets API v4 (free API key, public sheet) ─────────────
 
-async function listAllTabs() {
-  if (!SHEET_ID) throw new Error('GOOGLE_SHEET_ID is not set in .env');
+async function listAllTabs(sheetId = SHEET_ID) {
+  if (!sheetId) throw new Error('GOOGLE_SHEET_ID is not set in .env');
   if (!API_KEY)  throw new Error(
     'GOOGLE_API_KEY is not set in .env.\n' +
     'Get a free key at console.cloud.google.com → APIs & Services → Credentials.\n' +
     'Enable the "Google Sheets API" and create an API Key.'
   );
 
-  const url = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}` +
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}` +
               `?key=${API_KEY}&fields=sheets.properties(title)`;
   const { status, body } = await httpGet(url);
 
@@ -110,8 +111,8 @@ async function listAllTabs() {
 
 // ─── Fetch one tab as CSV via the public gviz endpoint ────────────────────────
 
-async function fetchTabCsv(tabName) {
-  const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}` +
+async function fetchTabCsv(tabName, sheetId = SHEET_ID) {
+  const url = `https://docs.google.com/spreadsheets/d/${sheetId}` +
               `/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(tabName)}`;
   const { status, body } = await httpGet(url);
   return status === 200 ? body : null;
@@ -189,13 +190,10 @@ function parseTabCsv(csvText, tabName) {
 async function syncDutyboard() {
   if (!SHEET_ID) throw new Error('GOOGLE_SHEET_ID is not set in .env');
 
-  const allTabs     = await listAllTabs();
-  const weeklyTabs  = allTabs.filter(t => WEEKLY_TAB_RE.test(t));
-
-  if (weeklyTabs.length === 0) throw new Error(
-    'No weekly schedule tabs found. ' +
-    'Expected tabs named like "3/15-3/21". Check GOOGLE_SHEET_ID in .env.'
-  );
+  const sources = [
+    { label: 'active',  sheetId: SHEET_ID },
+    ...(ARCHIVE_SHEET_ID ? [{ label: 'archive', sheetId: ARCHIVE_SHEET_ID }] : []),
+  ];
 
   // Alias lookup — maps alternate spellings to canonical member IDs
   const lookupAlias  = db.prepare('SELECT member_id FROM member_aliases WHERE alias = lower(?)');
@@ -224,36 +222,54 @@ async function syncDutyboard() {
   `);
 
   let totalSynced = 0;
+  let totalWeeklyTabs = 0;
   const tabResults = [];
   const errors     = [];
 
-  for (const tabName of weeklyTabs) {
+  for (const { label, sheetId } of sources) {
+    let weeklyTabs;
     try {
-      const csv = await fetchTabCsv(tabName);
-      if (!csv) {
-        errors.push(`${tabName}: could not fetch CSV`);
-        continue;
-      }
-
-      const signups = parseTabCsv(csv, tabName);
-
-      db.transaction(() => {
-        deleteTab.run(tabName);
-        for (const s of signups) {
-          const member = getOrCreateMember(s.memberName);
-          if (member) {
-            insertSignup.run(member.id, s.date, s.shiftTime, s.tabName);
-          }
-        }
-      })();
-
-      tabResults.push({ tab: tabName, signups: signups.length });
-      totalSynced += signups.length;
-
+      const allTabs = await listAllTabs(sheetId);
+      weeklyTabs    = allTabs.filter(t => WEEKLY_TAB_RE.test(t));
     } catch (err) {
-      errors.push(`${tabName}: ${err.message}`);
+      errors.push(`${label}: ${err.message}`);
+      continue;
+    }
+    totalWeeklyTabs += weeklyTabs.length;
+
+    for (const tabName of weeklyTabs) {
+      try {
+        const csv = await fetchTabCsv(tabName, sheetId);
+        if (!csv) {
+          errors.push(`${label}/${tabName}: could not fetch CSV`);
+          continue;
+        }
+
+        const signups = parseTabCsv(csv, tabName);
+
+        db.transaction(() => {
+          deleteTab.run(tabName);
+          for (const s of signups) {
+            const member = getOrCreateMember(s.memberName);
+            if (member) {
+              insertSignup.run(member.id, s.date, s.shiftTime, s.tabName);
+            }
+          }
+        })();
+
+        tabResults.push({ source: label, tab: tabName, signups: signups.length });
+        totalSynced += signups.length;
+
+      } catch (err) {
+        errors.push(`${label}/${tabName}: ${err.message}`);
+      }
     }
   }
+
+  if (totalWeeklyTabs === 0) throw new Error(
+    'No weekly schedule tabs found across configured dutyboards. ' +
+    'Expected tabs named like "3/15-3/21". Check GOOGLE_SHEET_ID / GOOGLE_ARCHIVE_SHEET_ID in .env.'
+  );
 
   // Remove ghost members created by previous bad name extraction (no data anywhere)
   const cleaned = db.prepare(`
@@ -261,13 +277,14 @@ async function syncDutyboard() {
     WHERE id NOT IN (SELECT DISTINCT member_id FROM riding_points)
       AND id NOT IN (SELECT DISTINCT member_id FROM nonriding_points)
       AND id NOT IN (SELECT DISTINCT member_id FROM shift_signups)
+      AND id NOT IN (SELECT DISTINCT member_id FROM event_credits)
   `).run();
   if (cleaned.changes > 0) {
     console.log(`[sheets] Removed ${cleaned.changes} orphan member record(s).`);
   }
 
   console.log(`[sheets] Synced ${totalSynced} shift signups across ${tabResults.length} tabs.`);
-  return { synced: totalSynced, weeklyTabsFound: weeklyTabs.length, tabs: tabResults, errors };
+  return { synced: totalSynced, weeklyTabsFound: totalWeeklyTabs, tabs: tabResults, errors };
 }
 
 // ─── Query helpers ─────────────────────────────────────────────────────────────
