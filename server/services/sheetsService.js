@@ -45,7 +45,7 @@ const ROLE_ROW_RE = /^(Driver|EMT|Rider)/i;
 
 // ─── HTTP helper ──────────────────────────────────────────────────────────────
 
-function httpGet(url) {
+function httpGetOnce(url) {
   return new Promise((resolve, reject) => {
     https.get(url, res => {
       let body = '';
@@ -53,6 +53,25 @@ function httpGet(url) {
       res.on('end', () => resolve({ status: res.statusCode, body }));
     }).on('error', reject);
   });
+}
+
+// Retry transient 5xx and connection errors with backoff.
+async function httpGet(url, attempts = 3) {
+  let lastErr;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      const r = await httpGetOnce(url);
+      if (r.status >= 500 && i < attempts - 1) {
+        await new Promise(res => setTimeout(res, 500 * (i + 1)));
+        continue;
+      }
+      return r;
+    } catch (err) {
+      lastErr = err;
+      if (i < attempts - 1) await new Promise(res => setTimeout(res, 500 * (i + 1)));
+    }
+  }
+  throw lastErr || new Error('httpGet failed after retries');
 }
 
 // ─── Name extraction ──────────────────────────────────────────────────────────
@@ -109,13 +128,19 @@ async function listAllTabs(sheetId = SHEET_ID) {
   return data.sheets.map(s => s.properties.title);
 }
 
-// ─── Fetch one tab as CSV via the public gviz endpoint ────────────────────────
+// ─── Fetch one tab's data via Sheets API v4 (values.get), then unparse to CSV.
+// We avoid the public gviz endpoint because some sandbox/network environments
+// block docs.google.com outbound. sheets.googleapis.com works with the API key
+// alone on any sheet the key can read.
 
 async function fetchTabCsv(tabName, sheetId = SHEET_ID) {
-  const url = `https://docs.google.com/spreadsheets/d/${sheetId}` +
-              `/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(tabName)}`;
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}` +
+              `/values/${encodeURIComponent(tabName)}?key=${API_KEY}`;
   const { status, body } = await httpGet(url);
-  return status === 200 ? body : null;
+  if (status !== 200) return null;
+  let values;
+  try { values = JSON.parse(body).values || []; } catch { return null; }
+  return Papa.unparse(values);
 }
 
 // ─── Parse one weekly tab CSV → signup records ────────────────────────────────
@@ -128,19 +153,33 @@ function parseTabCsv(csvText, tabName) {
 
   if (rows.length < 2) return [];
 
-  // Row index 1 holds the actual dates in columns 1–7 (B–H)
-  const dateRow = rows[1];
+  // Locate the "Date" header row dynamically — older layouts had it at row 1,
+  // current layouts start with a KEY block and put it lower. Match the first
+  // row whose first cell is "Date" (case-insensitive) AND whose columns 1–7
+  // hold parseable dates.
+  let dateRowIdx = -1;
   const colDates = {};          // colIndex → "YYYY-MM-DD"
-  for (let c = 1; c <= 7; c++) {
-    const d = parseDate(dateRow[c]);
-    if (d) colDates[c] = d;
+  for (let i = 0; i < rows.length; i++) {
+    const r = rows[i];
+    if (!r) continue;
+    if (String(r[0] || '').trim().toLowerCase() !== 'date') continue;
+    const found = {};
+    for (let c = 1; c <= 7; c++) {
+      const d = parseDate(r[c]);
+      if (d) found[c] = d;
+    }
+    if (Object.keys(found).length > 0) {
+      dateRowIdx = i;
+      Object.assign(colDates, found);
+      break;
+    }
   }
-  if (Object.keys(colDates).length === 0) return [];
+  if (dateRowIdx === -1) return [];
 
   const signups = [];
   let currentShift = null;      // e.g. "0600-0800"
 
-  for (let r = 2; r < rows.length; r++) {
+  for (let r = dateRowIdx + 1; r < rows.length; r++) {
     const row  = rows[r];
     const col0 = String(row[0] || '').trim();
     if (!col0) continue;
@@ -238,6 +277,8 @@ async function syncDutyboard() {
     totalWeeklyTabs += weeklyTabs.length;
 
     for (const tabName of weeklyTabs) {
+      // Throttle: Sheets API caps reads at 60/min/user.
+      await new Promise(r => setTimeout(r, 250));
       try {
         const csv = await fetchTabCsv(tabName, sheetId);
         if (!csv) {

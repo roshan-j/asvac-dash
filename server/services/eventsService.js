@@ -23,7 +23,7 @@ const API_KEY  = process.env.GOOGLE_API_KEY;
 
 // ─── HTTP helper ──────────────────────────────────────────────────────────────
 
-function httpGet(url) {
+function httpGetOnce(url) {
   return new Promise((resolve, reject) => {
     https.get(url, res => {
       let body = '';
@@ -31,6 +31,24 @@ function httpGet(url) {
       res.on('end', () => resolve({ status: res.statusCode, body }));
     }).on('error', reject);
   });
+}
+
+async function httpGet(url, attempts = 3) {
+  let lastErr;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      const r = await httpGetOnce(url);
+      if (r.status >= 500 && i < attempts - 1) {
+        await new Promise(res => setTimeout(res, 500 * (i + 1)));
+        continue;
+      }
+      return r;
+    } catch (err) {
+      lastErr = err;
+      if (i < attempts - 1) await new Promise(res => setTimeout(res, 500 * (i + 1)));
+    }
+  }
+  throw lastErr || new Error('httpGet failed after retries');
 }
 
 // ─── Name cleanup: strip the ", DEMR" / ", PEMT (P)" certification suffix ─────
@@ -64,10 +82,18 @@ async function listAllTabs() {
 }
 
 async function fetchTabCsv(tabName) {
-  const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}` +
-              `/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(tabName)}`;
+  // Use Sheets API v4 values.get (not docs.google.com gviz, which some networks block).
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}` +
+              `/values/${encodeURIComponent(tabName)}?key=${API_KEY}`;
   const { status, body } = await httpGet(url);
-  return status === 200 ? body : null;
+  if (status !== 200) {
+    let detail = body.slice(0, 200);
+    try { detail = JSON.parse(body).error.message; } catch (_) {}
+    throw new Error(`HTTP ${status}: ${detail}`);
+  }
+  let values;
+  try { values = JSON.parse(body).values || []; } catch { return null; }
+  return Papa.unparse(values);
 }
 
 // ─── Parse one tab CSV → per-member credit records ────────────────────────────
@@ -134,12 +160,10 @@ async function syncEventCredits() {
   const errors     = [];
 
   for (const tabName of allTabs) {
+    await new Promise(r => setTimeout(r, 250));
     try {
       const csv = await fetchTabCsv(tabName);
-      if (!csv) {
-        errors.push(`${tabName}: could not fetch CSV (sheet may not be set to "Anyone with the link can view")`);
-        continue;
-      }
+      if (!csv) continue; // unparseable response; skip
       const credits = parseEventsCsv(csv, tabName);
       if (credits.length === 0) continue;
 

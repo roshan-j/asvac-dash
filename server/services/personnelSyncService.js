@@ -35,14 +35,28 @@ const FIRST_NAME_ALIASES = {
 };
 
 function fetchCSV(sheetId, tab) {
+  // Use Sheets API v4 values.get; the docs.google.com gviz endpoint is blocked
+  // in some sandboxed network environments.
   return new Promise((resolve, reject) => {
-    const url = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(tab)}&key=${API_KEY}`;
+    const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent(tab)}?key=${API_KEY}`;
     https.get(url, res => {
       let data = '';
       res.on('data', c => data += c);
       res.on('end', () => {
-        if (res.statusCode !== 200) reject(new Error(`HTTP ${res.statusCode} fetching ${sheetId}/${tab}`));
-        else resolve(data);
+        if (res.statusCode !== 200) {
+          return reject(new Error(`HTTP ${res.statusCode} fetching ${sheetId}/${tab}`));
+        }
+        let values;
+        try { values = JSON.parse(data).values || []; }
+        catch (e) { return reject(new Error(`Could not parse values for ${sheetId}/${tab}: ${e.message}`)); }
+        // Flatten back to CSV so parseSheetNames can keep using its line-based logic.
+        const csv = values.map(row =>
+          row.map(cell => {
+            const s = String(cell == null ? '' : cell);
+            return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+          }).join(',')
+        ).join('\n');
+        resolve(csv);
       });
     }).on('error', reject);
   });
