@@ -3,6 +3,7 @@ import { useApi } from '../hooks/useApi';
 import { getCorpsTrend, getCorpsMonth, getLeaderboard, getPeriods } from '../api/client';
 import CorpsTrendChart from '../components/Charts/CorpsTrendChart';
 import RidesHistogramChart from '../components/Charts/RidesHistogramChart';
+import CrewPerCallChart from '../components/Charts/CrewPerCallChart';
 import { formatPeriod } from '../utils/format';
 
 // ─── StatCard with hover tooltip ──────────────────────────────────────────────
@@ -152,6 +153,8 @@ export default function CorpsOverview() {
     ? (monthly.shifts.total / monthly.shifts.activeMembers).toFixed(1) : '—';
   const riderPct = monthly && monthly.totalMembers > 0
     ? Math.round((monthly.riding.activeMembers / monthly.totalMembers) * 100) : '—';
+  const avgCrew = monthly && monthly.riding.avgCrewPerCall
+    ? monthly.riding.avgCrewPerCall.toFixed(1) : '—';
 
   return (
     <div style={styles.page}>
@@ -203,10 +206,19 @@ export default function CorpsOverview() {
       {/* Monthly stat cards */}
       <div style={styles.cards}>
         <StatCard
+          label="Total Rides" value={monthly?.riding.uniqueCalls} color="#0d4f8b"
+          sub="unique calls covered"
+          tooltip={[
+            { label: 'Avg crew / call',   value: avgCrew },
+            { label: 'Person-rides',      value: monthly?.riding.totalCalls ?? '—' },
+            { label: 'Active riders',     value: monthly?.riding.activeMembers ?? '—' },
+          ]}
+        />
+        <StatCard
           label="Total Riding Points" value={monthly?.riding.totalPoints} color="#1a3a6b"
           tooltip={[
             { label: 'Active riders',   value: monthly?.riding.activeMembers ?? '—' },
-            { label: 'Total calls',     value: monthly?.riding.totalCalls ?? '—' },
+            { label: 'Person-rides',    value: monthly?.riding.totalCalls ?? '—' },
             { label: 'Avg / rider',     value: rAvg },
           ]}
         />
@@ -256,6 +268,17 @@ export default function CorpsOverview() {
         <h2 style={styles.h2}>12-Month Corps Trend</h2>
         {tl ? <p style={styles.loading}>Loading…</p>
             : <CorpsTrendChart data={trend} selectedYear={year} selectedMonth={month} />}
+      </div>
+
+      {/* Avg crew per call trend */}
+      <div style={styles.section}>
+        <h2 style={styles.h2}>Average Crew per Call — 12-Month Trend</h2>
+        <p style={styles.subtle}>
+          Each unique call is covered by 1 ambulance with multiple responders. This shows the
+          average number of crew members credited per call, across calls in the month.
+        </p>
+        {tl ? <p style={styles.loading}>Loading…</p>
+            : <CrewPerCallChart data={trend} selectedYear={year} selectedMonth={month} />}
       </div>
 
       {/* Rides-per-member histogram */}
@@ -332,6 +355,7 @@ const styles = {
   header:   { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 },
   h1:       { fontSize: 26, fontWeight: 800, color: '#1a3a6b', margin: 0 },
   h2:       { fontSize: 18, fontWeight: 700, color: '#1a3a6b', marginBottom: 16 },
+  subtle:   { fontSize: 12, color: '#888', marginTop: -8, marginBottom: 16, lineHeight: 1.5 },
   controls:     { display: 'flex', gap: 10, alignItems: 'center' },
   select:       { padding: '8px 12px', borderRadius: 6, border: '1px solid #ddd', fontSize: 14, background: '#fff' },
   sheetsBtn:    { padding: '8px 14px', borderRadius: 6, border: '2px solid #1a7f4b', background: '#fff', color: '#1a7f4b', fontSize: 14, cursor: 'pointer', fontWeight: 600, whiteSpace: 'nowrap' },

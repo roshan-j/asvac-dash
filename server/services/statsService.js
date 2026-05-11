@@ -113,10 +113,13 @@ function getCorpsMonthStats(year, month) {
   const riding = db.prepare(`
     SELECT
       COUNT(*)                               AS totalCalls,
+      COUNT(DISTINCT call_number)            AS uniqueCalls,
       SUM(points)                            AS totalPoints,
       COUNT(DISTINCT member_id)              AS activeMembers,
       CAST(SUM(points) AS REAL) /
-        MAX(COUNT(DISTINCT member_id), 1)    AS avgPointsPerMember
+        MAX(COUNT(DISTINCT member_id), 1)    AS avgPointsPerMember,
+      CAST(COUNT(*) AS REAL) /
+        MAX(COUNT(DISTINCT call_number), 1)  AS avgCrewPerCall
     FROM riding_points
     WHERE call_date BETWEEN ? AND ?
   `).get(start, end);
@@ -143,9 +146,11 @@ function getCorpsMonthStats(year, month) {
     totalMembers,
     riding: {
       totalCalls:         riding.totalCalls      || 0,
+      uniqueCalls:        riding.uniqueCalls     || 0,
       totalPoints:        riding.totalPoints      || 0,
       activeMembers:      riding.activeMembers    || 0,
       avgPointsPerMember: riding.avgPointsPerMember || 0,
+      avgCrewPerCall:     riding.avgCrewPerCall   || 0,
     },
     nonriding: {
       totalPoints:   nonriding.totalPoints   || 0,
