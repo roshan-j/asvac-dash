@@ -1,0 +1,62 @@
+{
+  "_comment": "ASVAC night-crew roster. Source: Crew_List_ASVAC_02282026 master copy last version.pdf. Edit annually when the crew list is reissued. exclusions.type values: 'FDC' (Full Day Crew), 'leave' (medical/personnel), 'probationary' (not yet eligible for full night-crew totals). nameAliases lets a roster name route to an existing DB member that's stored under a different name (e.g. ESO writes 'Tony' but the corps prefers 'Haitham').",
+  "version": "2025-04-26",
+  "nameAliases": {},
+  "crews": {
+    "1": [
+      { "name": "Steve Greenfeld",  "rank": "EMT", "role": "Crew Chief"  },
+      { "name": "Chendong Pan",     "rank": "EMT", "role": "Non-Driver"  },
+      { "name": "Jia Li",           "rank": "EMT", "role": "Driver"      },
+      { "name": "Jodie Reaver",     "rank": "EMR", "role": "Driver"      },
+      { "name": "Sarah Berkowitz",  "rank": "EMS", "role": "Driver"      }
+    ],
+    "2": [
+      { "name": "Melissa Jhunja",   "rank": "EMT", "role": "Crew Chief"  },
+      { "name": "Jim Hughes",       "rank": "EMT", "role": "Driver"      },
+      { "name": "Anissa Elahi",     "rank": "EMT", "role": "Non-Driver"  },
+      { "name": "Alan Gallantar",   "rank": "EMT", "role": "Driver"      },
+      { "name": "Pankaj Batra",     "rank": "EMR", "role": "Non-Driver"  },
+      { "name": "Manoj Nambiar",    "rank": "EMR", "role": "Driver"      },
+      { "name": "Edith Fung",       "rank": "EMS", "role": "Driver"      }
+    ],
+    "3": [
+      { "name": "Nisha Nambiar",    "rank": "EMT", "role": "Crew Chief"  },
+      { "name": "John Clear",       "rank": "EMT", "role": "Crew Chief"  },
+      { "name": "Shijo Zacharias",  "rank": "EMT", "role": "Driver"      },
+      { "name": "Susan Moskowitz",  "rank": "EMR", "role": "Driver"      }
+    ],
+    "4": [
+      { "name": "Nishith Shah",     "rank": "EMT", "role": "Crew Chief"  },
+      { "name": "Christopher Rich", "rank": "EMT", "role": "EMT"         },
+      { "name": "Roshan Jhunja",    "rank": "EMR", "role": "Driver"      },
+      { "name": "Jing Chen",        "rank": "EMS", "role": "Driver"      }
+    ],
+    "5": [
+      { "name": "Haitham Rabadi",   "rank": "EMT", "role": "Crew Chief"  },
+      { "name": "Greg Khitrov",     "rank": "EMT", "role": "Crew Chief"  },
+      { "name": "Kaushik Mody",     "rank": "EMT", "role": "Driver"      },
+      { "name": "Patricia Leone",   "rank": "EMS", "role": "Driver"      },
+      { "name": "Erica Rosenfeld",  "rank": "EMR", "role": "Driver"      }
+    ],
+    "6": [
+      { "name": "Craig Ascher",     "rank": "EMT", "role": "Crew Chief"  },
+      { "name": "Michelle Moses",   "rank": "EMT", "role": "Driver"      },
+      { "name": "Juan Wiley",       "rank": "EMT", "role": "Non-Driver"  },
+      { "name": "Siddharth Arora",  "rank": "EMR", "role": "Driver"      },
+      { "name": "Divya Singal",     "rank": "EMR", "role": "Non-Driver"  }
+    ]
+  },
+  "exclusions": [
+    { "name": "Morry Silbiger",    "crew": 5, "rank": "EMT", "role": "Driver",     "type": "FDC"          },
+    { "name": "Roy Haddad",        "crew": 5, "rank": "EMS", "role": "Driver",     "type": "FDC"          },
+    { "name": "Andy DiJusto",      "crew": 5, "rank": "EMR", "role": "Driver",     "type": "leave"        },
+    { "name": "Alan Greenwald",    "crew": 2, "rank": "EMT", "role": "Driver",     "type": "leave"        },
+    { "name": "Royce Varghese",    "crew": 1, "rank": "EMS", "role": "Non-Driver", "type": "probationary" },
+    { "name": "Patrick Smith",     "crew": 3, "rank": "EMT", "role": "Driver",     "type": "probationary" },
+    { "name": "Yu Zhou",           "crew": 3, "rank": "EMS", "role": "Non-Driver", "type": "probationary" },
+    { "name": "Jakub Olszowski",   "crew": 3, "rank": "EMS", "role": "Non-Driver", "type": "probationary" },
+    { "name": "Alexis Ablezer",    "crew": 4, "rank": "EMS", "role": "Non-Driver", "type": "probationary" },
+    { "name": "Richard Ablezer",   "crew": 5, "rank": "EMS", "role": "Non-Driver", "type": "probationary" },
+    { "name": "Kasime Mirsky",     "crew": 6, "rank": "EMS", "role": "Non-Driver", "type": "probationary" }
+  ]
+}

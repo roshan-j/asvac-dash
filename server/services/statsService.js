@@ -10,6 +10,31 @@
 
 const db = require('../db/database');
 
+// ─── Shift-response multiplier ─────────────────────────────────────────────────
+//
+// When a member responds to a call that falls within a shift window they signed
+// up for, their call points earn a 1.5× bonus.  Requires call_time to be stored
+// (populated by esoParser when re-importing existing data or on new imports).
+//
+// Alias assumption: the riding_points table is aliased `r` in every query below.
+
+const SHIFT_BONUS = 1.5;
+
+// Inline SQL expression that returns multiplied points for a single riding_points row.
+const MULTIPLIED_PTS = `
+  CASE
+    WHEN r.call_time IS NOT NULL AND EXISTS (
+      SELECT 1 FROM shift_signups ss
+      WHERE ss.member_id = r.member_id
+        AND ss.shift_date = r.call_date
+        AND CAST(REPLACE(r.call_time, ':', '') AS INTEGER)
+            >= CAST(SUBSTR(ss.shift_time, 1, 4) AS INTEGER)
+        AND CAST(REPLACE(r.call_time, ':', '') AS INTEGER)
+            <  CAST(SUBSTR(ss.shift_time, 6, 4) AS INTEGER)
+    ) THEN r.points * ${SHIFT_BONUS}
+    ELSE r.points
+  END`.trim();
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function monthRange(year, month) {
@@ -36,9 +61,9 @@ function getMemberMonthStats(memberId, year, month) {
   const { start, end } = monthRange(year, month);
 
   const riding = db.prepare(`
-    SELECT COUNT(*) AS count, SUM(points) AS total
-    FROM riding_points
-    WHERE member_id = ? AND call_date BETWEEN ? AND ?
+    SELECT COUNT(*) AS count, SUM(${MULTIPLIED_PTS}) AS total
+    FROM riding_points r
+    WHERE r.member_id = ? AND r.call_date BETWEEN ? AND ?
   `).get(memberId, start, end);
 
   const nonriding = db.prepare(`
@@ -88,10 +113,13 @@ function getCorpsMonthStats(year, month) {
   const riding = db.prepare(`
     SELECT
       COUNT(*)                               AS totalCalls,
+      COUNT(DISTINCT call_number)            AS uniqueCalls,
       SUM(points)                            AS totalPoints,
       COUNT(DISTINCT member_id)              AS activeMembers,
       CAST(SUM(points) AS REAL) /
-        MAX(COUNT(DISTINCT member_id), 1)    AS avgPointsPerMember
+        MAX(COUNT(DISTINCT member_id), 1)    AS avgPointsPerMember,
+      CAST(COUNT(*) AS REAL) /
+        MAX(COUNT(DISTINCT call_number), 1)  AS avgCrewPerCall
     FROM riding_points
     WHERE call_date BETWEEN ? AND ?
   `).get(start, end);
@@ -118,9 +146,11 @@ function getCorpsMonthStats(year, month) {
     totalMembers,
     riding: {
       totalCalls:         riding.totalCalls      || 0,
+      uniqueCalls:        riding.uniqueCalls     || 0,
       totalPoints:        riding.totalPoints      || 0,
       activeMembers:      riding.activeMembers    || 0,
       avgPointsPerMember: riding.avgPointsPerMember || 0,
+      avgCrewPerCall:     riding.avgCrewPerCall   || 0,
     },
     nonriding: {
       totalPoints:   nonriding.totalPoints   || 0,
@@ -159,16 +189,20 @@ function getLeaderboard(year, month) {
     SELECT
       m.id,
       m.name,
-      COALESCE(r.points, 0)   AS ridingPoints,
-      COALESCE(nr.points, 0)  AS nonridingPoints,
-      COALESCE(r.points, 0) + COALESCE(nr.points, 0) AS totalPoints,
+      COALESCE(r.points, 0)    AS ridingPoints,
+      COALESCE(nr.points, 0)   AS nonridingPoints,
+      COALESCE(r.points, 0) + COALESCE(nr.points, 0)
+        + COALESCE(mt.cnt, 0) * 2
+        + COALESCE(tr.cnt, 0) * 2 AS totalPoints,
       COALESCE(nr.clockins, 0) AS nonridingClockIns,
-      COALESCE(s.signups, 0)  AS shiftSignups
+      COALESCE(s.signups, 0)   AS shiftSignups,
+      COALESCE(mt.cnt, 0)      AS meetingAttendance,
+      COALESCE(tr.cnt, 0)      AS trainingAttendance
     FROM members m
     LEFT JOIN (
-      SELECT member_id, SUM(points) AS points
-      FROM riding_points WHERE call_date BETWEEN ? AND ?
-      GROUP BY member_id
+      SELECT r.member_id, SUM(${MULTIPLIED_PTS}) AS points
+      FROM riding_points r WHERE r.call_date BETWEEN ? AND ?
+      GROUP BY r.member_id
     ) r ON r.member_id = m.id
     LEFT JOIN (
       SELECT member_id, SUM(points) AS points, COUNT(*) AS clockins
@@ -180,12 +214,24 @@ function getLeaderboard(year, month) {
       FROM shift_signups WHERE shift_date BETWEEN ? AND ?
       GROUP BY member_id
     ) s ON s.member_id = m.id
+    LEFT JOIN (
+      SELECT member_id, COUNT(*) AS cnt
+      FROM attendance_events WHERE year = ? AND month = ? AND type = 'meeting'
+      GROUP BY member_id
+    ) mt ON mt.member_id = m.id
+    LEFT JOIN (
+      SELECT member_id, COUNT(*) AS cnt
+      FROM attendance_events WHERE year = ? AND month = ? AND type = 'training'
+      GROUP BY member_id
+    ) tr ON tr.member_id = m.id
     WHERE m.status = 'active'
       AND (COALESCE(r.points, 0) > 0
         OR COALESCE(nr.points, 0) > 0
-        OR COALESCE(s.signups, 0) > 0)
+        OR COALESCE(s.signups, 0) > 0
+        OR COALESCE(mt.cnt, 0) > 0
+        OR COALESCE(tr.cnt, 0) > 0)
     ORDER BY totalPoints DESC
-  `).all(start, end, start, end, start, end);
+  `).all(start, end, start, end, start, end, year, month, year, month);
 
   return rows.map((row, idx) => ({ rank: idx + 1, ...row }));
 }

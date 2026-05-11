@@ -63,6 +63,16 @@ function normalizeName(raw) {
 // ─── Date parsing ──────────────────────────────────────────────────────────────
 
 /**
+ * Parse "MM/DD/YYYY HH:MM" → "HH:MM" (24-hour).
+ * Returns null when no time component is present.
+ */
+function parseCallTime(raw) {
+  if (!raw || raw instanceof Date) return null;
+  const match = String(raw).trim().match(/\d{1,2}\/\d{1,2}\/\d{4}\s+(\d{2}:\d{2})/);
+  return match ? match[1] : null;
+}
+
+/**
  * Parse "MM/DD/YYYY HH:MM" (or just "MM/DD/YYYY") → "YYYY-MM-DD"
  * Also handles ISO dates and Excel serial numbers.
  */
@@ -97,8 +107,10 @@ function parseCallDate(raw) {
 const COL_A_TIMESTAMP = 'time in psap call';
 const COL_A_MEMBER    = 'pm complete person name';
 
-// Format B column identifiers (exact, lowercased)
-const COL_B_ID        = 'eso record id';
+// Format B column identifiers (exact, lowercased).
+// COL_B_ID accepts either "ESO Record ID" (older export) or "Patient Care
+// Record ID" (newer widget export) — both serve as the unique call key.
+const COL_B_ID        = ['eso record id', 'patient care record id'];
 const COL_B_TIMESTAMP = 'time in eso record created date';
 const COL_B_MEMBER    = 'crew full name';
 
@@ -110,8 +122,8 @@ const COL_B_MEMBER    = 'crew full name';
 function findHeaders(rawHeaders) {
   const lower = rawHeaders.map(h => String(h).toLowerCase().trim());
 
-  // Detect Format B first (has ESO Record ID column)
-  const idIdx = lower.findIndex(h => h === COL_B_ID);
+  // Detect Format B first (has an ID column — ESO Record ID or Patient Care Record ID)
+  const idIdx = lower.findIndex(h => COL_B_ID.includes(h));
   if (idIdx !== -1) {
     const tsIdx = lower.findIndex(h => h === COL_B_TIMESTAMP);
     const mbIdx = lower.findIndex(h => h === COL_B_MEMBER);
@@ -146,6 +158,7 @@ function parseRows(rows) {
     const rawName = row[mbCol];
 
     const callDate   = parseCallDate(rawDate);
+    const callTime   = parseCallTime(rawDate);   // "HH:MM" or null
     const memberName = normalizeName(rawName);
     if (!callDate || !memberName) continue;
 
@@ -155,7 +168,7 @@ function parseRows(rows) {
       : String(rawDate || '').trim();
 
     if (!callKey) continue;
-    records.push({ callDate, callKey, memberName });
+    records.push({ callDate, callTime, callKey, memberName });
   }
   return records;
 }
@@ -189,17 +202,26 @@ function importEsoData(buffer, filename, batchId) {
     throw new Error('No valid records found in file. Check that it is an ESO call export.');
   }
 
-  const getOrCreateMember = db.prepare(`
-    INSERT INTO members (name) VALUES (?)
-    ON CONFLICT(name) DO UPDATE SET name = excluded.name
-    RETURNING id
-  `);
+  // Routing: check member_aliases first, then exact name, then create.
+  // Without the alias step, an ESO row spelled "Tony Rabadi" would create a
+  // fresh duplicate when the canonical members.name has been renamed (e.g.
+  // to "Haitham Rabadi"). Aliases keep the route open across renames.
+  const lookupAlias  = db.prepare('SELECT member_id AS id FROM member_aliases WHERE alias = lower(?)');
+  const lookupExact  = db.prepare('SELECT id FROM members WHERE name = ?');
+  const insertNewMember = db.prepare('INSERT INTO members (name) VALUES (?) RETURNING id');
+  const getOrCreateMember = {
+    get(name) {
+      return lookupAlias.get(name) || lookupExact.get(name) || insertNewMember.get(name);
+    },
+  };
 
-  // callKey is the raw timestamp string — uniquely identifies a call
+  // On re-import we backfill call_time without touching points or import_batch.
   const insertPoint = db.prepare(`
-    INSERT OR IGNORE INTO riding_points
-      (member_id, call_date, call_number, call_type, points, import_batch)
-    VALUES (?, ?, ?, NULL, ?, ?)
+    INSERT INTO riding_points
+      (member_id, call_date, call_number, call_type, points, import_batch, call_time)
+    VALUES (?, ?, ?, NULL, ?, ?, ?)
+    ON CONFLICT(member_id, call_date, call_number) DO UPDATE SET
+      call_time = excluded.call_time
   `);
 
   let inserted = 0, skipped = 0;
@@ -219,7 +241,8 @@ function importEsoData(buffer, filename, batchId) {
         rec.callDate,
         rec.callKey,      // stored as call_number for deduplication
         POINTS_PER_CALL,
-        batchId
+        batchId,
+        rec.callTime      // "HH:MM" or null — enables shift-response multiplier
       );
 
       if (result.changes > 0) inserted++;

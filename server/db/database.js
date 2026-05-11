@@ -25,13 +25,15 @@ db.exec(`
     email       TEXT,
     status      TEXT    DEFAULT 'active',   -- active | inactive
     joined_date TEXT,
-    created_at  TEXT    DEFAULT (datetime('now'))
+    created_at  TEXT    DEFAULT (datetime('now')),
+    member_type TEXT                         -- adult | college | both | NULL
   );
 
   CREATE TABLE IF NOT EXISTS riding_points (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     member_id   INTEGER NOT NULL REFERENCES members(id),
     call_date   TEXT    NOT NULL,   -- ISO date YYYY-MM-DD
+    call_time   TEXT,               -- "HH:MM" 24h, NULL when source has no time
     call_number TEXT,
     call_type   TEXT,
     points      REAL    DEFAULT 1,
@@ -89,6 +91,82 @@ db.exec(`
     success     INTEGER DEFAULT 1,
     error_msg   TEXT
   );
+
+  -- Fixed monthly officer credit. points_per_month applied for every month of the year.
+  CREATE TABLE IF NOT EXISTS officers (
+    member_id        INTEGER NOT NULL REFERENCES members(id),
+    year             INTEGER NOT NULL,
+    points_per_month INTEGER NOT NULL DEFAULT 2,
+    PRIMARY KEY (member_id, year)
+  );
+
+  -- Event / standby points synced from the ASVAC Adult Events Points Google Sheet.
+  -- One row per member per event occurrence.
+  CREATE TABLE IF NOT EXISTS standby_events (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    member_id   INTEGER NOT NULL REFERENCES members(id),
+    event_date  TEXT    NOT NULL,
+    event_name  TEXT    NOT NULL,
+    points      INTEGER NOT NULL DEFAULT 1,
+    synced_at   TEXT    DEFAULT (datetime('now')),
+    UNIQUE(member_id, event_date, event_name)
+  );
+
+  -- ─── Night-crew tables (annual night-shift hours report) ───────────────────
+  -- One row per night that a crew is on call. Sourced from the public ICS feed
+  -- of tony@cprtony.com via nightShiftService. The night STARTS at 22:00 of
+  -- the date stored here and ends at 06:00 the next day.
+  CREATE TABLE IF NOT EXISTS crew_nights (
+    date         TEXT    PRIMARY KEY,    -- YYYY-MM-DD (date the night begins)
+    crew_number  INTEGER NOT NULL,       -- 1-6
+    source       TEXT    DEFAULT 'ics',
+    synced_at    TEXT    DEFAULT (datetime('now'))
+  );
+
+  -- Mapping of corps members to their night crews. Seeded from
+  -- server/config/crew_roster.json by crewRosterService.
+  -- exclusion: NULL = active, 'FDC' = full day crew, 'TMP' = temporary,
+  -- 'leave' = medical / personal leave. Excluded members are still stored so
+  -- they can be listed in the report footer.
+  CREATE TABLE IF NOT EXISTS crew_members (
+    member_id    INTEGER NOT NULL REFERENCES members(id),
+    crew_number  INTEGER NOT NULL,
+    rank         TEXT,
+    role         TEXT,
+    exclusion    TEXT,
+    sort_order   INTEGER DEFAULT 0,
+    display_name TEXT,                  -- name as it appears in crew_roster.json
+    PRIMARY KEY (member_id, crew_number)
+  );
 `);
+
+// ─── Migrations ───────────────────────────────────────────────────────────────
+
+// v2: call_time on riding_points (shift-response multiplier + annual report)
+{
+  const cols = db.pragma('table_info(riding_points)');
+  if (!cols.some(c => c.name === 'call_time')) {
+    db.exec('ALTER TABLE riding_points ADD COLUMN call_time TEXT');
+    console.log('[db] migrated: added call_time column to riding_points');
+  }
+}
+
+// v3: member_type on members (added by personnelSyncService)
+{
+  const cols = db.pragma('table_info(members)');
+  if (!cols.some(c => c.name === 'member_type')) {
+    db.exec('ALTER TABLE members ADD COLUMN member_type TEXT');
+    console.log('[db] migrated: added member_type column to members');
+  }
+}
+
+// v4: display_name on crew_members (for roster spellings in annual report)
+{
+  const cols = db.pragma('table_info(crew_members)');
+  if (cols.length && !cols.some(c => c.name === 'display_name')) {
+    db.exec('ALTER TABLE crew_members ADD COLUMN display_name TEXT');
+    console.log('[db] migrated: added display_name column to crew_members');
+  }
+}
 
 module.exports = db;

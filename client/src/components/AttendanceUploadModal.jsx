@@ -126,11 +126,11 @@ export default function AttendanceUploadModal({ onClose }) {
             {!preview && (
               <div style={styles.dropzone} onClick={() => fileRef.current?.click()}>
                 <div style={{ fontSize: 32, marginBottom: 6 }}>📂</div>
-                {loading ? 'Parsing…' : 'Click to choose a CSV attendance export'}
+                {loading ? 'Parsing…' : 'Click to choose a CSV or Excel attendance export'}
                 <input
                   ref={fileRef}
                   type="file"
-                  accept=".csv"
+                  accept=".csv,.xlsx,.xls"
                   style={{ display: 'none' }}
                   onChange={handleFile}
                 />
