@@ -107,8 +107,10 @@ function parseCallDate(raw) {
 const COL_A_TIMESTAMP = 'time in psap call';
 const COL_A_MEMBER    = 'pm complete person name';
 
-// Format B column identifiers (exact, lowercased)
-const COL_B_ID        = 'eso record id';
+// Format B column identifiers (exact, lowercased).
+// COL_B_ID accepts either "ESO Record ID" (older export) or "Patient Care
+// Record ID" (newer widget export) — both serve as the unique call key.
+const COL_B_ID        = ['eso record id', 'patient care record id'];
 const COL_B_TIMESTAMP = 'time in eso record created date';
 const COL_B_MEMBER    = 'crew full name';
 
@@ -120,8 +122,8 @@ const COL_B_MEMBER    = 'crew full name';
 function findHeaders(rawHeaders) {
   const lower = rawHeaders.map(h => String(h).toLowerCase().trim());
 
-  // Detect Format B first (has ESO Record ID column)
-  const idIdx = lower.findIndex(h => h === COL_B_ID);
+  // Detect Format B first (has an ID column — ESO Record ID or Patient Care Record ID)
+  const idIdx = lower.findIndex(h => COL_B_ID.includes(h));
   if (idIdx !== -1) {
     const tsIdx = lower.findIndex(h => h === COL_B_TIMESTAMP);
     const mbIdx = lower.findIndex(h => h === COL_B_MEMBER);
