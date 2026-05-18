@@ -38,45 +38,55 @@ function StatCard({ label, value, sub, color = '#1a3a6b', tooltip }) {
 // address match rate is the confidence signal, so this surfaces both the
 // match rate AND the confidence-band distribution + monthly breakdown.
 function DispatchPanel({ report }) {
-  const pct      = (n, d) => (d > 0 ? `${Math.round((n / d) * 100)}%` : '—');
-  const matchedPct  = report.total > 0 ? report.matched / report.total : 0;
-  const aidPct      = report.total > 0 ? report.mutualAid / report.total : 0;
+  const pct = (n, d) => (d > 0 ? `${Math.round((n / d) * 100)}%` : '—');
+  const matchedPct = report.total > 0 ? report.matched / report.total : 0;
+  const inAreaPct  = report.total > 0 ? report.inAreaGap / report.total : 0;
+  const outPct     = report.total > 0 ? report.outOfArea / report.total : 0;
+  const unparsePct = report.total > 0 ? report.unparseable / report.total : 0;
 
   return (
     <div>
-      {/* Top-line summary */}
+      {/* Top-line: the in-area gap is the operationally important number. */}
       <div style={dispatchStyles.topRow}>
-        <div style={{ ...dispatchStyles.bigStat, color: '#1a7f4b' }}>
-          <div style={dispatchStyles.bigValue}>{pct(report.matched, report.total)}</div>
-          <div style={dispatchStyles.bigLabel}>Dispatches matched to ESO</div>
-          <div style={dispatchStyles.bigSub}>{report.matched} of {report.total}</div>
-        </div>
-        <div style={{ ...dispatchStyles.bigStat, color: '#b85c00' }}>
-          <div style={dispatchStyles.bigValue}>{pct(report.mutualAid, report.total)}</div>
-          <div style={dispatchStyles.bigLabel}>Lost to mutual aid</div>
-          <div style={dispatchStyles.bigSub}>{report.mutualAid} of {report.total}</div>
-        </div>
-        <div style={{ ...dispatchStyles.bigStat, color: '#1a3a6b' }}>
-          <div style={dispatchStyles.bigValue}>
-            {Math.round(report.esoAddressCoverage * 100)}%
+        <div style={{ ...dispatchStyles.bigStat, borderColor: '#c34a4a' }}>
+          <div style={{ ...dispatchStyles.bigValue, color: '#c34a4a' }}>{report.inAreaGap}</div>
+          <div style={dispatchStyles.bigLabel}>In-area coverage gap</div>
+          <div style={dispatchStyles.bigSub}>
+            Dispatched to our area, no ESO record — went to another agency<br/>
+            {pct(report.inAreaGap, report.total)} of {report.total} dispatches
           </div>
-          <div style={dispatchStyles.bigLabel}>ESO scene-address coverage</div>
-          <div style={dispatchStyles.bigSub}>limits what can be matched</div>
+        </div>
+        <div style={{ ...dispatchStyles.bigStat, borderColor: '#1a7f4b' }}>
+          <div style={{ ...dispatchStyles.bigValue, color: '#1a7f4b' }}>{report.matched}</div>
+          <div style={dispatchStyles.bigLabel}>Responded</div>
+          <div style={dispatchStyles.bigSub}>
+            Matched to an ESO call ({pct(report.matched, report.total)})
+          </div>
+        </div>
+        <div style={{ ...dispatchStyles.bigStat, borderColor: '#aaa' }}>
+          <div style={{ ...dispatchStyles.bigValue, color: '#666' }}>{report.outOfArea + report.unparseable}</div>
+          <div style={dispatchStyles.bigLabel}>Other-agency / highway</div>
+          <div style={dispatchStyles.bigSub}>
+            {report.outOfArea} explicit aid-out, {report.unparseable} highway/MVA<br/>
+            Never expected to be ours
+          </div>
         </div>
       </div>
 
-      {/* Horizontal proportion bar */}
-      <div style={dispatchStyles.proportionBar} title="Matched (green) vs. mutual aid (orange)">
-        <div style={{ ...dispatchStyles.barSegment, width: `${matchedPct * 100}%`, background: '#1a7f4b' }} />
-        <div style={{ ...dispatchStyles.barSegment, width: `${aidPct * 100}%`,     background: '#d27a2b' }} />
+      {/* Horizontal proportion bar — 4 segments */}
+      <div style={dispatchStyles.proportionBar} title="Responded / In-area gap / Out-of-area / Unparseable">
+        <div style={{ ...dispatchStyles.barSegment, width: `${matchedPct * 100}%`, background: '#1a7f4b' }} title={`Responded: ${report.matched}`} />
+        <div style={{ ...dispatchStyles.barSegment, width: `${inAreaPct * 100}%`,  background: '#c34a4a' }} title={`In-area gap: ${report.inAreaGap}`} />
+        <div style={{ ...dispatchStyles.barSegment, width: `${outPct * 100}%`,     background: '#aaaaaa' }} title={`Out-of-area: ${report.outOfArea}`} />
+        <div style={{ ...dispatchStyles.barSegment, width: `${unparsePct * 100}%`, background: '#cccccc' }} title={`Unparseable: ${report.unparseable}`} />
       </div>
 
-      {/* Confidence-band distribution */}
       <div style={dispatchStyles.dist}>
         <strong>Match confidence:</strong>{' '}
         ≥0.95: <code>{report.distribution.bucket_95_100}</code>
         {' · '}0.90–0.95: <code>{report.distribution.bucket_90_95}</code>
         {' · '}0.85–0.90: <code>{report.distribution.bucket_85_90}</code>
+        {'  ·  '}<strong>ESO scene-address coverage:</strong> {Math.round(report.esoAddressCoverage * 100)}%
       </div>
 
       {/* Monthly breakdown */}
@@ -84,7 +94,7 @@ function DispatchPanel({ report }) {
         <table style={dispatchStyles.monthlyTable}>
           <thead>
             <tr>
-              {['Month', 'Dispatches', 'Matched', 'Mutual aid', 'Match rate'].map(h =>
+              {['Month', 'Total', 'Responded', 'In-area gap', 'Out-of-area', 'Unparseable'].map(h =>
                 <th key={h} style={dispatchStyles.th}>{h}</th>)}
             </tr>
           </thead>
@@ -94,8 +104,9 @@ function DispatchPanel({ report }) {
                 <td style={dispatchStyles.td}>{new Date(2000, m.month - 1).toLocaleString('default', { month: 'long' })}</td>
                 <td style={{ ...dispatchStyles.td, textAlign: 'right' }}>{m.total}</td>
                 <td style={{ ...dispatchStyles.td, textAlign: 'right', color: '#1a7f4b', fontWeight: 600 }}>{m.matched}</td>
-                <td style={{ ...dispatchStyles.td, textAlign: 'right', color: '#b85c00', fontWeight: 600 }}>{m.mutualAid}</td>
-                <td style={{ ...dispatchStyles.td, textAlign: 'right' }}>{Math.round(m.matchRate * 100)}%</td>
+                <td style={{ ...dispatchStyles.td, textAlign: 'right', color: '#c34a4a', fontWeight: 700 }}>{m.inAreaGap}</td>
+                <td style={{ ...dispatchStyles.td, textAlign: 'right', color: '#666' }}>{m.outOfArea}</td>
+                <td style={{ ...dispatchStyles.td, textAlign: 'right', color: '#888' }}>{m.unparseable}</td>
               </tr>
             ))}
           </tbody>
@@ -125,18 +136,30 @@ function DispatchPanel({ report }) {
           </table>
         </div>
         <div style={dispatchStyles.sampleBlock}>
-          <h4 style={dispatchStyles.sampleHeader}>Recent unmatched (presumed mutual aid)</h4>
+          <h4 style={dispatchStyles.sampleHeader}>Recent unmatched (in-area gaps shown first)</h4>
           <table style={dispatchStyles.monthlyTable}>
-            <thead><tr>{['Date', 'Time', 'Dispatch address', 'Description'].map(h => <th key={h} style={dispatchStyles.th}>{h}</th>)}</tr></thead>
+            <thead><tr>{['Date', 'Time', 'Category', 'Dispatch address', 'Description'].map(h => <th key={h} style={dispatchStyles.th}>{h}</th>)}</tr></thead>
             <tbody>
-              {report.samples.unmatched.slice(0, 8).map((s, i) => (
-                <tr key={i} style={dispatchStyles.tr}>
-                  <td style={dispatchStyles.td}>{s.dispatch_date}</td>
-                  <td style={dispatchStyles.td}>{s.dispatch_time}</td>
-                  <td style={{ ...dispatchStyles.td, fontSize: 12 }}>{(s.dispatchAddress || '').replace(/\n/g, ' / ')}</td>
-                  <td style={{ ...dispatchStyles.td, fontSize: 12, color: '#666' }}>{s.description?.slice(0, 80)}</td>
-                </tr>
-              ))}
+              {report.samples.unmatched.slice(0, 12).map((s, i) => {
+                const tag = s.aidCategory === 'in_area_gap'
+                  ? { label: 'In-area gap', color: '#c34a4a', bg: '#fde2e2' }
+                  : s.aidCategory === 'out_of_area'
+                  ? { label: 'Other agency',  color: '#666',    bg: '#eee' }
+                  : { label: 'Unparseable',  color: '#888',    bg: '#f0f0f0' };
+                return (
+                  <tr key={i} style={dispatchStyles.tr}>
+                    <td style={dispatchStyles.td}>{s.dispatch_date}</td>
+                    <td style={dispatchStyles.td}>{s.dispatch_time}</td>
+                    <td style={dispatchStyles.td}>
+                      <span style={{ background: tag.bg, color: tag.color, padding: '2px 8px', borderRadius: 99, fontSize: 11, fontWeight: 700 }}>
+                        {tag.label}
+                      </span>
+                    </td>
+                    <td style={{ ...dispatchStyles.td, fontSize: 12 }}>{(s.dispatchAddress || '').replace(/\n/g, ' / ')}</td>
+                    <td style={{ ...dispatchStyles.td, fontSize: 12, color: '#666' }}>{s.description?.slice(0, 80)}</td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -419,9 +442,12 @@ export default function CorpsOverview() {
         <h2 style={styles.h2}>Dispatch Response — {year}</h2>
         <p style={styles.subtle}>
           Police dispatches from iamresponding.com matched against ESO call
-          records. Unmatched dispatches are classified as mutual aid (we were
-          paged but another agency picked up the run). Confidence threshold:
-          0.85 address similarity within a ±15 min / +3 hr window.
+          records. The headline number is the <strong>in-area coverage gap</strong>:
+          dispatches to our service area with no corresponding ESO record —
+          meaning the run went to another agency because we couldn't field a
+          crew. Out-of-area dispatches (explicit mutual aid out, neighbor-town
+          calls) and highway/MVA dispatches without parseable addresses are
+          listed separately since those were never primarily ours.
         </p>
         {dl ? (
           <p style={styles.loading}>Loading…</p>

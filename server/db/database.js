@@ -209,4 +209,16 @@ db.exec(`
   }
 }
 
+// v7: aid_category on dispatches — splits unmatched into 'in_area_gap'
+// (real coverage gap), 'out_of_area' (explicit mutual-aid out, neighbor town
+// mention, or "disregard"), and 'unparseable' (no parseable address — mostly
+// highway/MVA outside our jurisdiction). NULL for matched dispatches.
+{
+  const cols = db.pragma('table_info(dispatches)');
+  if (cols.length && !cols.some(c => c.name === 'aid_category')) {
+    db.exec("ALTER TABLE dispatches ADD COLUMN aid_category TEXT");
+    console.log('[db] migrated: added aid_category column to dispatches');
+  }
+}
+
 module.exports = db;

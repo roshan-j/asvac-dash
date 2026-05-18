@@ -38,6 +38,38 @@ const TIME_BEFORE_MIN = 15;     // ESO can pre-date dispatch by ≤15 min
 const TIME_AFTER_MIN  = 180;    // ESO can post-date dispatch by ≤3 hr
 const MIN_SCORE       = 0.85;
 
+// Markers in the dispatch text that signal the call was always going to
+// another agency — not a coverage gap for ASVAC. Neighbor-town names and
+// explicit "mutual aid TO" phrasing are the strong signals.
+const OUT_OF_AREA_RE = new RegExp([
+  // Neighbor towns/agencies we routinely back up but don't primarily cover
+  '\\bhastings\\b', '\\bdobbs ferry\\b', '\\belmsford\\b', '\\bgreenburgh\\b',
+  '\\btarrytown\\b', '\\birvington\\b', '\\byonkers\\b', '\\bwhite plains\\b',
+  '\\bscarsdale\\b', '\\bsleepy hollow\\b',
+  // Explicit "going out as mutual aid" phrasings the dispatcher uses
+  'mutual aid', '\\bto :', '\\bto dobbs\\b', '\\bto hastings\\b',
+  '\\bto elmsford\\b', '\\bto greenburgh\\b',
+  // GPD = Greenburgh PD jurisdiction marker
+  '\\bgpd\\b',
+  // Cancellation / disregard tags
+  '^disregard\\b',
+].join('|'), 'i');
+
+/**
+ * Classify an unmatched dispatch. Returns one of:
+ *   'out_of_area' — explicit signal it was going to another agency
+ *   'unparseable' — no parseable address; usually highway/MVA outside our area
+ *   'in_area_gap' — clean address in our area, no ESO match → real coverage gap
+ *
+ * Matched dispatches get NULL (no category needed).
+ */
+function categorizeUnmatched(rawAddr, rawDesc, normalizedAddr) {
+  const haystack = `${rawAddr || ''} ${rawDesc || ''}`.trim();
+  if (OUT_OF_AREA_RE.test(haystack)) return 'out_of_area';
+  if (!normalizedAddr) return 'unparseable';
+  return 'in_area_gap';
+}
+
 // "HH:MM[:SS]" + date → minutes since epoch (ish — we just need diffs).
 function toMinutes(dateYmd, timeHms) {
   const [y, mo, d] = dateYmd.split('-').map(Number);
@@ -118,7 +150,8 @@ function nextDay(ymd) {
  */
 function matchDispatchesInRange(startDate, endDate) {
   const dispatches = db.prepare(`
-    SELECT id, dispatch_date, dispatch_time, normalized_address
+    SELECT id, dispatch_date, dispatch_time, normalized_address,
+           raw_address, raw_description
     FROM dispatches
     WHERE dispatch_date BETWEEN ? AND ?
   `).all(startDate, endDate);
@@ -135,25 +168,37 @@ function matchDispatchesInRange(startDate, endDate) {
     UPDATE dispatches
     SET matched_call_number = ?,
         match_score         = ?,
+        aid_category        = ?,
         matched_at          = datetime('now')
     WHERE id = ?
   `);
 
-  let matched = 0, mutualAid = 0;
+  let matched = 0, inAreaGap = 0, outOfArea = 0, unparseable = 0;
   db.transaction(() => {
     for (const d of dispatches) {
       const m = findBestMatch(d, candidatesByDate);
       if (m) {
-        update.run(m.call_number, m.score, d.id);
+        update.run(m.call_number, m.score, null, d.id);
         matched++;
       } else {
-        update.run(null, null, d.id);
-        mutualAid++;
+        const category = categorizeUnmatched(d.raw_address, d.raw_description, d.normalized_address);
+        update.run(null, null, category, d.id);
+        if      (category === 'in_area_gap') inAreaGap++;
+        else if (category === 'out_of_area') outOfArea++;
+        else                                  unparseable++;
       }
     }
   })();
 
-  return { scanned: dispatches.length, matched, mutualAid, candidatePool: candidates.length };
+  return {
+    scanned: dispatches.length,
+    matched,
+    inAreaGap,
+    outOfArea,
+    unparseable,
+    mutualAid: inAreaGap + outOfArea + unparseable,  // total unmatched, for callers that still want the headline
+    candidatePool: candidates.length,
+  };
 }
 
 /**
@@ -179,8 +224,21 @@ function buildMatchReport(year) {
     WHERE dispatch_date BETWEEN ? AND ? AND matched_call_number IS NOT NULL
   `).get(start, end).c;
 
+  // Category buckets for the unmatched. in_area_gap is the headline number
+  // the user cares about — dispatches in our area we didn't field.
+  const cats = db.prepare(`
+    SELECT aid_category, COUNT(*) AS c FROM dispatches
+    WHERE dispatch_date BETWEEN ? AND ? AND matched_call_number IS NULL
+    GROUP BY aid_category
+  `).all(start, end);
+  const catCount = (name) => (cats.find(r => r.aid_category === name)?.c) || 0;
+  const inAreaGap   = catCount('in_area_gap');
+  const outOfArea   = catCount('out_of_area');
+  const unparseable = catCount('unparseable');
+
   const mutualAid = total - matched;
   const matchRate = total > 0 ? matched / total : 0;
+  const inAreaGapRate = total > 0 ? inAreaGap / total : 0;
 
   // ESO address coverage in the same year — context for the match rate.
   const esoTotalCalls = db.prepare(`
@@ -195,18 +253,24 @@ function buildMatchReport(year) {
 
   const byMonth = db.prepare(`
     SELECT substr(dispatch_date, 6, 2) AS m,
-           COUNT(*)                                            AS total,
-           SUM(CASE WHEN matched_call_number IS NOT NULL THEN 1 ELSE 0 END) AS matched
+           COUNT(*) AS total,
+           SUM(CASE WHEN matched_call_number IS NOT NULL THEN 1 ELSE 0 END) AS matched,
+           SUM(CASE WHEN aid_category = 'in_area_gap' THEN 1 ELSE 0 END)    AS in_area_gap,
+           SUM(CASE WHEN aid_category = 'out_of_area' THEN 1 ELSE 0 END)    AS out_of_area,
+           SUM(CASE WHEN aid_category = 'unparseable' THEN 1 ELSE 0 END)    AS unparseable
     FROM dispatches
     WHERE dispatch_date BETWEEN ? AND ?
     GROUP BY m
     ORDER BY m
   `).all(start, end).map(r => ({
-    month:     parseInt(r.m, 10),
-    total:     r.total,
-    matched:   r.matched,
-    mutualAid: r.total - r.matched,
-    matchRate: r.total > 0 ? r.matched / r.total : 0,
+    month:        parseInt(r.m, 10),
+    total:        r.total,
+    matched:      r.matched,
+    inAreaGap:    r.in_area_gap,
+    outOfArea:    r.out_of_area,
+    unparseable:  r.unparseable,
+    mutualAid:    r.total - r.matched,
+    matchRate:    r.total > 0 ? r.matched / r.total : 0,
   }));
 
   // Samples for spot-checking. The user said address match rate is what gives
@@ -221,11 +285,15 @@ function buildMatchReport(year) {
     LIMIT 20
   `).all(start, end);
 
+  // Unmatched sample focused on in-area gaps — these are the operationally
+  // important ones the user cares about (real coverage misses, not the
+  // explicit-out-of-area or unparseable ones).
   const sampleUnmatched = db.prepare(`
-    SELECT dispatch_date, dispatch_time, raw_address AS dispatchAddress, raw_description AS description
+    SELECT dispatch_date, dispatch_time, raw_address AS dispatchAddress,
+           raw_description AS description, aid_category AS aidCategory
     FROM dispatches
     WHERE dispatch_date BETWEEN ? AND ? AND matched_call_number IS NULL
-    ORDER BY dispatch_date DESC, dispatch_time DESC
+    ORDER BY (aid_category = 'in_area_gap') DESC, dispatch_date DESC, dispatch_time DESC
     LIMIT 20
   `).all(start, end);
 
@@ -243,8 +311,12 @@ function buildMatchReport(year) {
     year,
     total,
     matched,
-    mutualAid,
+    mutualAid,         // total unmatched (for backwards compatibility)
+    inAreaGap,         // ← THE headline number: dispatches we missed in our area
+    outOfArea,         // explicitly going elsewhere, never ours
+    unparseable,       // highway/MVA, can't classify, also rarely ours
     matchRate,
+    inAreaGapRate,
     esoAddressCoverage,
     byMonth,
     distribution,
