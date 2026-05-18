@@ -41,6 +41,32 @@ const TIME_RE = /^(\d{1,2}):(\d{2})(?::(\d{2}))?$/;
 const STREET_TYPE_RE = /\b(road|rd|street|st|avenue|ave|av|boulevard|blvd|place|pl|lane|ln|drive|dr|court|ct|circle|cir|highway|hwy|parkway|pkwy|terrace|ter|trail|trl|way|broadway)\b\.?/i;
 const HOUSE_PREFIX_RE = /^\d+\s+[A-Za-z]/;
 
+// Landmark fallback. The dispatcher sometimes writes a description-style
+// address that doesn't start with the house number — e.g. "ATRIA WOODLANDS
+// 1015 MEMORY CARE UNIT…". When the line contains both a known landmark
+// keyword and a plausible house number, we reconstruct the address from
+// the landmark's known street. Used as the last parser pass after the
+// strict house-prefix / street-type passes fail.
+//
+// House number candidate: 3–4 digit number (typical Ardsley range), to avoid
+// catching ages ("78 yr old"), apt numbers, mile markers, etc.
+const LANDMARK_TO_STREET = [
+  { match: /\batria\s+woodlands\b/i, street: 'Saw Mill River Road' },
+  { match: /\batria\b/i,             street: 'Saw Mill River Road' },
+  { match: /\bsunrise of ardsley\b/i,street: 'Saw Mill River Road' },
+];
+const LANDMARK_HOUSE_RE = /\b(\d{3,4})\b/;
+
+function detectLandmarkAddress(line) {
+  for (const lm of LANDMARK_TO_STREET) {
+    if (lm.match.test(line)) {
+      const m = line.match(LANDMARK_HOUSE_RE);
+      if (m) return `${m[1]} ${lm.street}`;
+    }
+  }
+  return null;
+}
+
 function decodeHtml(s) {
   return String(s || '')
     .replace(/&nbsp;/g, ' ')
@@ -97,6 +123,16 @@ function splitAddressFromDescription(detailsText) {
   if (addressIdx === -1) {
     addressIdx = expanded.findIndex(l => STREET_TYPE_RE.test(l));
   }
+  // Pass 3: landmark + house number anywhere on the line. Catches dispatches
+  // like "ATRIA WOODLANDS 1015 MEMORY CARE UNIT…" where neither a house-prefix
+  // nor a street type is present, but a known landmark identifies the street.
+  let synthesizedAddress = null;
+  if (addressIdx === -1) {
+    for (let i = 0; i < expanded.length; i++) {
+      const synth = detectLandmarkAddress(expanded[i]);
+      if (synth) { addressIdx = i; synthesizedAddress = synth; break; }
+    }
+  }
 
   if (addressIdx === -1) {
     return { address: null, description: lines.join(' ') || null };
@@ -119,6 +155,11 @@ function splitAddressFromDescription(detailsText) {
   return {
     address:     addressLines.join('\n'),
     description: descLines.length ? descLines.join(' ') : null,
+    // When pass 3 fired, this is the reconstructed canonical address
+    // ("1015 Saw Mill River Road" for an Atria dispatch). normalizeAddress
+    // uses this preferentially so the similarity score reflects the inferred
+    // street, not the landmark phrase.
+    synthesizedAddress,
   };
 }
 
@@ -150,10 +191,16 @@ function parseDispatchHtml(buffer) {
     if (!dispatchDate || !dispatchTime) continue;
 
     const detailsText = stripTags(cells[3]).trim();
-    const { address: rawAddress, description: rawDescription } =
+    const { address: rawAddress, description: rawDescription, synthesizedAddress } =
       splitAddressFromDescription(detailsText);
 
-    const normalizedAddress = rawAddress ? normalizeAddress(rawAddress) : null;
+    // Prefer the synthesized canonical (from landmark detection) for the
+    // normalized form when it exists, falling back to normalizing the raw
+    // address line otherwise. raw_address still holds the dispatcher's
+    // original text so the spot-check listing shows what they wrote.
+    const normalizedAddress = synthesizedAddress
+      ? normalizeAddress(synthesizedAddress)
+      : (rawAddress ? normalizeAddress(rawAddress) : null);
 
     records.push({
       dispatchDate,

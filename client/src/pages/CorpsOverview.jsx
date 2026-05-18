@@ -39,10 +39,12 @@ function StatCard({ label, value, sub, color = '#1a3a6b', tooltip }) {
 // match rate AND the confidence-band distribution + monthly breakdown.
 function DispatchPanel({ report }) {
   const pct = (n, d) => (d > 0 ? `${Math.round((n / d) * 100)}%` : '—');
-  const matchedPct = report.total > 0 ? report.matched / report.total : 0;
-  const inAreaPct  = report.total > 0 ? report.inAreaGap / report.total : 0;
-  const outPct     = report.total > 0 ? report.outOfArea / report.total : 0;
-  const unparsePct = report.total > 0 ? report.unparseable / report.total : 0;
+  const matchedPct  = report.total > 0 ? report.matched / report.total : 0;
+  const inAreaPct   = report.total > 0 ? report.inAreaGap / report.total : 0;
+  const outPct      = report.total > 0 ? report.outOfArea / report.total : 0;
+  const highwayPct  = report.total > 0 ? (report.highway || 0) / report.total : 0;
+  const unparsePct  = report.total > 0 ? report.unparseable / report.total : 0;
+  const otherCount  = report.outOfArea + (report.highway || 0) + report.unparseable;
 
   return (
     <div>
@@ -64,20 +66,21 @@ function DispatchPanel({ report }) {
           </div>
         </div>
         <div style={{ ...dispatchStyles.bigStat, borderColor: '#aaa' }}>
-          <div style={{ ...dispatchStyles.bigValue, color: '#666' }}>{report.outOfArea + report.unparseable}</div>
-          <div style={dispatchStyles.bigLabel}>Other-agency / highway</div>
+          <div style={{ ...dispatchStyles.bigValue, color: '#666' }}>{otherCount}</div>
+          <div style={dispatchStyles.bigLabel}>Other / highway / unparseable</div>
           <div style={dispatchStyles.bigSub}>
-            {report.outOfArea} explicit aid-out, {report.unparseable} highway/MVA<br/>
+            {report.outOfArea} explicit aid-out, {report.highway || 0} highway/MVA, {report.unparseable} no-address<br/>
             Never expected to be ours
           </div>
         </div>
       </div>
 
-      {/* Horizontal proportion bar — 4 segments */}
-      <div style={dispatchStyles.proportionBar} title="Responded / In-area gap / Out-of-area / Unparseable">
+      {/* Horizontal proportion bar — 5 segments */}
+      <div style={dispatchStyles.proportionBar} title="Responded / In-area gap / Out-of-area / Highway / Unparseable">
         <div style={{ ...dispatchStyles.barSegment, width: `${matchedPct * 100}%`, background: '#1a7f4b' }} title={`Responded: ${report.matched}`} />
         <div style={{ ...dispatchStyles.barSegment, width: `${inAreaPct * 100}%`,  background: '#c34a4a' }} title={`In-area gap: ${report.inAreaGap}`} />
         <div style={{ ...dispatchStyles.barSegment, width: `${outPct * 100}%`,     background: '#aaaaaa' }} title={`Out-of-area: ${report.outOfArea}`} />
+        <div style={{ ...dispatchStyles.barSegment, width: `${highwayPct * 100}%`, background: '#888888' }} title={`Highway/MVA: ${report.highway || 0}`} />
         <div style={{ ...dispatchStyles.barSegment, width: `${unparsePct * 100}%`, background: '#cccccc' }} title={`Unparseable: ${report.unparseable}`} />
       </div>
 
@@ -94,7 +97,7 @@ function DispatchPanel({ report }) {
         <table style={dispatchStyles.monthlyTable}>
           <thead>
             <tr>
-              {['Month', 'Total', 'Responded', 'In-area gap', 'Out-of-area', 'Unparseable'].map(h =>
+              {['Month', 'Total', 'Responded', 'In-area gap', 'Out-of-area', 'Highway', 'Unparseable'].map(h =>
                 <th key={h} style={dispatchStyles.th}>{h}</th>)}
             </tr>
           </thead>
@@ -106,6 +109,7 @@ function DispatchPanel({ report }) {
                 <td style={{ ...dispatchStyles.td, textAlign: 'right', color: '#1a7f4b', fontWeight: 600 }}>{m.matched}</td>
                 <td style={{ ...dispatchStyles.td, textAlign: 'right', color: '#c34a4a', fontWeight: 700 }}>{m.inAreaGap}</td>
                 <td style={{ ...dispatchStyles.td, textAlign: 'right', color: '#666' }}>{m.outOfArea}</td>
+                <td style={{ ...dispatchStyles.td, textAlign: 'right', color: '#777' }}>{m.highway || 0}</td>
                 <td style={{ ...dispatchStyles.td, textAlign: 'right', color: '#888' }}>{m.unparseable}</td>
               </tr>
             ))}
@@ -144,8 +148,10 @@ function DispatchPanel({ report }) {
                 const tag = s.aidCategory === 'in_area_gap'
                   ? { label: 'In-area gap', color: '#c34a4a', bg: '#fde2e2' }
                   : s.aidCategory === 'out_of_area'
-                  ? { label: 'Other agency',  color: '#666',    bg: '#eee' }
-                  : { label: 'Unparseable',  color: '#888',    bg: '#f0f0f0' };
+                  ? { label: 'Other agency', color: '#666',   bg: '#eee' }
+                  : s.aidCategory === 'highway'
+                  ? { label: 'Highway/MVA',  color: '#777',   bg: '#ececec' }
+                  : { label: 'Unparseable',  color: '#888',   bg: '#f0f0f0' };
                 return (
                   <tr key={i} style={dispatchStyles.tr}>
                     <td style={dispatchStyles.td}>{s.dispatch_date}</td>

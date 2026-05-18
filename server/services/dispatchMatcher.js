@@ -39,34 +39,75 @@ const TIME_AFTER_MIN  = 180;    // ESO can post-date dispatch by ≤3 hr
 const MIN_SCORE       = 0.85;
 
 // Markers in the dispatch text that signal the call was always going to
-// another agency — not a coverage gap for ASVAC. Neighbor-town names and
-// explicit "mutual aid TO" phrasing are the strong signals.
+// another agency. We only fire on STRONG signals — "TO :" prefix, explicit
+// "mutual aid", "GPD jurisdiction", or "disregard/cancel". Neighbor-town
+// name alone is too weak (we routinely respond inbound to Dobbs Ferry's
+// 128 Ashford Ave SNF, for example), so we let those go through the matcher
+// and only fall into out_of_area if both unmatched AND no ESO record exists.
 const OUT_OF_AREA_RE = new RegExp([
-  // Neighbor towns/agencies we routinely back up but don't primarily cover
-  '\\bhastings\\b', '\\bdobbs ferry\\b', '\\belmsford\\b', '\\bgreenburgh\\b',
-  '\\btarrytown\\b', '\\birvington\\b', '\\byonkers\\b', '\\bwhite plains\\b',
-  '\\bscarsdale\\b', '\\bsleepy hollow\\b',
-  // Explicit "going out as mutual aid" phrasings the dispatcher uses
-  'mutual aid', '\\bto :', '\\bto dobbs\\b', '\\bto hastings\\b',
-  '\\bto elmsford\\b', '\\bto greenburgh\\b',
-  // GPD = Greenburgh PD jurisdiction marker
+  'mutual aid',
+  '\\bmutual aide\\b',
+  '\\bto\\s*:',                // "TO :" or "TO:" prefix
+  '\\bto dobbs\\b',
+  '\\bto hastings\\b',
+  '\\bto elmsford\\b',
+  '\\bto greenburgh\\b',
+  '\\bto irvington\\b',
+  '\\bto yonkers\\b',
+  '\\bto tarrytown\\b',
+  '\\bto sleepy hollow\\b',
   '\\bgpd\\b',
-  // Cancellation / disregard tags
+  '\\bdfpd\\b',                // Dobbs Ferry PD requesting
+  '\\bgreenburgh pd\\b',
+  '\\bgreenburgh school\\b',
+  'greenburgh jurisdiction',
   '^disregard\\b',
+  '\\bcancel(led|ed|\\b)',
+  '\\bcnx\\b',
+  'hastings on hudson',
+  'this call is in',
+  // "2nd plectron" / "2nd plektron" — IAR's re-page signal, fired only when
+  // the first page got no response. Per the corps's own description, this
+  // is a last-resort signal and the call usually goes to mutual aid.
+  '\\b2nd plectron\\b',
+  '\\b2nd plektron\\b',
+  '\\bsecond plectron\\b',
+  '\\bsecond plektron\\b',
+].join('|'), 'i');
+
+// Highway / parkway calls — typically NYS Police territory, sometimes our
+// jurisdiction but we don't usually field them. Pulled out of the in-area
+// bucket because they aren't operationally a "coverage gap" in the corps
+// sense.
+const HIGHWAY_RE = new RegExp([
+  '\\bi[-\\s]?87\\b',
+  '\\bmile\\s+(marker|maker|post)\\b',
+  '\\bmm\\s*\\d',
+  '\\bnorthbound\\b', '\\bsouthbound\\b',
+  '\\bn/b\\b', '\\bs/b\\b',
+  '\\bnb\\b', '\\bsb\\b',
+  'saw mill river parkway',
+  'saw mill parkway',
+  'sprain brook',
+  'bronx river parkway',
+  'hutchinson river parkway',
+  'thruway',
 ].join('|'), 'i');
 
 /**
  * Classify an unmatched dispatch. Returns one of:
  *   'out_of_area' — explicit signal it was going to another agency
- *   'unparseable' — no parseable address; usually highway/MVA outside our area
- *   'in_area_gap' — clean address in our area, no ESO match → real coverage gap
+ *   'highway'     — highway/parkway/mile-marker — typically state police
+ *   'unparseable' — no parseable address (description-only)
+ *   'in_area_gap' — clean address in our area → real coverage gap
  *
  * Matched dispatches get NULL (no category needed).
  */
 function categorizeUnmatched(rawAddr, rawDesc, normalizedAddr) {
   const haystack = `${rawAddr || ''} ${rawDesc || ''}`.trim();
   if (OUT_OF_AREA_RE.test(haystack)) return 'out_of_area';
-  if (!normalizedAddr) return 'unparseable';
+  if (HIGHWAY_RE.test(haystack))      return 'highway';
+  if (!normalizedAddr)                return 'unparseable';
   return 'in_area_gap';
 }
 
@@ -173,7 +214,7 @@ function matchDispatchesInRange(startDate, endDate) {
     WHERE id = ?
   `);
 
-  let matched = 0, inAreaGap = 0, outOfArea = 0, unparseable = 0;
+  let matched = 0, inAreaGap = 0, outOfArea = 0, highway = 0, unparseable = 0;
   db.transaction(() => {
     for (const d of dispatches) {
       const m = findBestMatch(d, candidatesByDate);
@@ -185,6 +226,7 @@ function matchDispatchesInRange(startDate, endDate) {
         update.run(null, null, category, d.id);
         if      (category === 'in_area_gap') inAreaGap++;
         else if (category === 'out_of_area') outOfArea++;
+        else if (category === 'highway')     highway++;
         else                                  unparseable++;
       }
     }
@@ -195,8 +237,9 @@ function matchDispatchesInRange(startDate, endDate) {
     matched,
     inAreaGap,
     outOfArea,
+    highway,
     unparseable,
-    mutualAid: inAreaGap + outOfArea + unparseable,  // total unmatched, for callers that still want the headline
+    mutualAid: inAreaGap + outOfArea + highway + unparseable,
     candidatePool: candidates.length,
   };
 }
@@ -234,6 +277,7 @@ function buildMatchReport(year) {
   const catCount = (name) => (cats.find(r => r.aid_category === name)?.c) || 0;
   const inAreaGap   = catCount('in_area_gap');
   const outOfArea   = catCount('out_of_area');
+  const highway     = catCount('highway');
   const unparseable = catCount('unparseable');
 
   const mutualAid = total - matched;
@@ -257,6 +301,7 @@ function buildMatchReport(year) {
            SUM(CASE WHEN matched_call_number IS NOT NULL THEN 1 ELSE 0 END) AS matched,
            SUM(CASE WHEN aid_category = 'in_area_gap' THEN 1 ELSE 0 END)    AS in_area_gap,
            SUM(CASE WHEN aid_category = 'out_of_area' THEN 1 ELSE 0 END)    AS out_of_area,
+           SUM(CASE WHEN aid_category = 'highway'     THEN 1 ELSE 0 END)    AS highway,
            SUM(CASE WHEN aid_category = 'unparseable' THEN 1 ELSE 0 END)    AS unparseable
     FROM dispatches
     WHERE dispatch_date BETWEEN ? AND ?
@@ -268,6 +313,7 @@ function buildMatchReport(year) {
     matched:      r.matched,
     inAreaGap:    r.in_area_gap,
     outOfArea:    r.out_of_area,
+    highway:      r.highway,
     unparseable:  r.unparseable,
     mutualAid:    r.total - r.matched,
     matchRate:    r.total > 0 ? r.matched / r.total : 0,
@@ -314,7 +360,8 @@ function buildMatchReport(year) {
     mutualAid,         // total unmatched (for backwards compatibility)
     inAreaGap,         // ← THE headline number: dispatches we missed in our area
     outOfArea,         // explicitly going elsewhere, never ours
-    unparseable,       // highway/MVA, can't classify, also rarely ours
+    highway,           // highway/parkway/mile-marker — typically state police
+    unparseable,       // description-only, no parseable address
     matchRate,
     inAreaGapRate,
     esoAddressCoverage,

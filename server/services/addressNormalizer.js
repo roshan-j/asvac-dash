@@ -93,6 +93,13 @@ function normalizeAddress(raw) {
   if (!raw) return null;
   let s = String(raw).toLowerCase();
 
+  // Strip dispatcher prefixes that aren't part of the address. iamresponding.com
+  // dispatchers frequently prefix the address line with "Address: : " or
+  // "address:" — leaving it in tanks similarity vs. the clean ESO scene_address
+  // (e.g. "address 128 ashford avenue" vs. "128 ashford avenue" scores 0.69
+  // instead of 1.0). 20+ matches were missed for this reason.
+  s = s.replace(/^\s*(address|addr|location|loc)\s*:\s*:?\s*/i, '').trim();
+
   // Expand local shorthand first (SMRR → Saw Mill River Road).
   s = expandLocalAbbreviations(s);
 
