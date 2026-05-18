@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react';
-import { uploadEso, uploadClockin, syncSheets } from '../../api/client';
+import { uploadEso, uploadClockin, uploadDispatches, syncSheets } from '../../api/client';
 
 const UPLOAD_TYPES = [
   {
@@ -19,6 +19,27 @@ const UPLOAD_TYPES = [
     color:    '#4a90d9',
     link:     'https://www.mytimestation.com/Account_Reports.asp?ReportID=24&Report_StartDate=01%2F25%2F2026&Report_EndDate=03%2F03%2F2026&Report_PageBreaks=1&Report_EmployeeID=-1&Report_DepartmentID=-1&Report_PunchStationID=-1&ReportName=Attendance+Counter&ID=24&UTCOffset=-300&TimeStamp=20260303_1107&Submit=Run+Report',
     linkText: 'Employee Activity Report',
+  },
+  {
+    key:      'dispatches',
+    label:    'Police Dispatch Reports',
+    desc:     'HTML export from iamresponding.com showing dispatches sent to the corps. Matched against ESO call records to surface mutual-aid losses (dispatched but not fielded).',
+    accept:   '.html,.htm',
+    fn:       uploadDispatches,
+    color:    '#b85c00',
+    link:     'https://app.iamresponding.com/v3//csnotes/SubscriberReportsDispatch.aspx?st=01/01/2026%2000:00:00.000&end=12/31/2026%2023:59:59.997&name=false&address=false&time=false&view=1',
+    linkText: 'IAR Dispatch Report (save page as HTML)',
+    // Dispatch responses include matching stats — surface them inline.
+    formatExtra: (r) =>
+      typeof r.matched === 'number' ? (
+        <span>
+          Matched <strong>{r.matched}</strong> to ESO calls,
+          {' '}<strong>{r.mutualAid}</strong> classified as mutual aid
+          {r.dateRange?.start && (
+            <> ({r.dateRange.start} → {r.dateRange.end})</>
+          )}
+        </span>
+      ) : null,
   },
 ];
 
@@ -67,8 +88,12 @@ function UploadCard({ type }) {
         <div style={styles.success}>
           ✅ Imported <strong>{result.inserted}</strong> records
           {result.skipped > 0 && <>, skipped {result.skipped} duplicates</>}
-          <br />
-          <small>Batch ID: {result.batchId}</small>
+          {type.formatExtra && type.formatExtra(result) && (
+            <><br />{type.formatExtra(result)}</>
+          )}
+          {result.batchId && (
+            <><br /><small>Batch ID: {result.batchId}</small></>
+          )}
         </div>
       )}
       {status === 'error' && (

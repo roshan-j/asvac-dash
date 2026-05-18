@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect } from 'react';
 import { useApi } from '../hooks/useApi';
-import { getCorpsTrend, getCorpsMonth, getLeaderboard, getPeriods } from '../api/client';
+import { getCorpsTrend, getCorpsMonth, getLeaderboard, getPeriods, getDispatchReport } from '../api/client';
 import CorpsTrendChart from '../components/Charts/CorpsTrendChart';
 import RidesHistogramChart from '../components/Charts/RidesHistogramChart';
 import CrewPerCallChart from '../components/Charts/CrewPerCallChart';
@@ -32,6 +32,138 @@ function StatCard({ label, value, sub, color = '#1a3a6b', tooltip }) {
     </div>
   );
 }
+
+// ─── Dispatch response panel ───────────────────────────────────────────────────
+// Renders the result of /api/data/dispatches/match-report. The user said
+// address match rate is the confidence signal, so this surfaces both the
+// match rate AND the confidence-band distribution + monthly breakdown.
+function DispatchPanel({ report }) {
+  const pct      = (n, d) => (d > 0 ? `${Math.round((n / d) * 100)}%` : '—');
+  const matchedPct  = report.total > 0 ? report.matched / report.total : 0;
+  const aidPct      = report.total > 0 ? report.mutualAid / report.total : 0;
+
+  return (
+    <div>
+      {/* Top-line summary */}
+      <div style={dispatchStyles.topRow}>
+        <div style={{ ...dispatchStyles.bigStat, color: '#1a7f4b' }}>
+          <div style={dispatchStyles.bigValue}>{pct(report.matched, report.total)}</div>
+          <div style={dispatchStyles.bigLabel}>Dispatches matched to ESO</div>
+          <div style={dispatchStyles.bigSub}>{report.matched} of {report.total}</div>
+        </div>
+        <div style={{ ...dispatchStyles.bigStat, color: '#b85c00' }}>
+          <div style={dispatchStyles.bigValue}>{pct(report.mutualAid, report.total)}</div>
+          <div style={dispatchStyles.bigLabel}>Lost to mutual aid</div>
+          <div style={dispatchStyles.bigSub}>{report.mutualAid} of {report.total}</div>
+        </div>
+        <div style={{ ...dispatchStyles.bigStat, color: '#1a3a6b' }}>
+          <div style={dispatchStyles.bigValue}>
+            {Math.round(report.esoAddressCoverage * 100)}%
+          </div>
+          <div style={dispatchStyles.bigLabel}>ESO scene-address coverage</div>
+          <div style={dispatchStyles.bigSub}>limits what can be matched</div>
+        </div>
+      </div>
+
+      {/* Horizontal proportion bar */}
+      <div style={dispatchStyles.proportionBar} title="Matched (green) vs. mutual aid (orange)">
+        <div style={{ ...dispatchStyles.barSegment, width: `${matchedPct * 100}%`, background: '#1a7f4b' }} />
+        <div style={{ ...dispatchStyles.barSegment, width: `${aidPct * 100}%`,     background: '#d27a2b' }} />
+      </div>
+
+      {/* Confidence-band distribution */}
+      <div style={dispatchStyles.dist}>
+        <strong>Match confidence:</strong>{' '}
+        ≥0.95: <code>{report.distribution.bucket_95_100}</code>
+        {' · '}0.90–0.95: <code>{report.distribution.bucket_90_95}</code>
+        {' · '}0.85–0.90: <code>{report.distribution.bucket_85_90}</code>
+      </div>
+
+      {/* Monthly breakdown */}
+      <div style={dispatchStyles.monthlyWrap}>
+        <table style={dispatchStyles.monthlyTable}>
+          <thead>
+            <tr>
+              {['Month', 'Dispatches', 'Matched', 'Mutual aid', 'Match rate'].map(h =>
+                <th key={h} style={dispatchStyles.th}>{h}</th>)}
+            </tr>
+          </thead>
+          <tbody>
+            {report.byMonth.map(m => (
+              <tr key={m.month} style={dispatchStyles.tr}>
+                <td style={dispatchStyles.td}>{new Date(2000, m.month - 1).toLocaleString('default', { month: 'long' })}</td>
+                <td style={{ ...dispatchStyles.td, textAlign: 'right' }}>{m.total}</td>
+                <td style={{ ...dispatchStyles.td, textAlign: 'right', color: '#1a7f4b', fontWeight: 600 }}>{m.matched}</td>
+                <td style={{ ...dispatchStyles.td, textAlign: 'right', color: '#b85c00', fontWeight: 600 }}>{m.mutualAid}</td>
+                <td style={{ ...dispatchStyles.td, textAlign: 'right' }}>{Math.round(m.matchRate * 100)}%</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Spot-check samples — collapsed by default */}
+      <details style={dispatchStyles.samples}>
+        <summary style={dispatchStyles.summary}>
+          Spot-check samples ({report.samples.matched.length} matched, {report.samples.unmatched.length} unmatched)
+        </summary>
+        <div style={dispatchStyles.sampleBlock}>
+          <h4 style={dispatchStyles.sampleHeader}>Highest-confidence matches</h4>
+          <table style={dispatchStyles.monthlyTable}>
+            <thead><tr>{['Date', 'Time', 'Dispatch address', 'ESO scene address', 'Score'].map(h => <th key={h} style={dispatchStyles.th}>{h}</th>)}</tr></thead>
+            <tbody>
+              {report.samples.matched.slice(0, 8).map((s, i) => (
+                <tr key={i} style={dispatchStyles.tr}>
+                  <td style={dispatchStyles.td}>{s.dispatch_date}</td>
+                  <td style={dispatchStyles.td}>{s.dispatch_time}</td>
+                  <td style={{ ...dispatchStyles.td, fontSize: 12 }}>{(s.dispatchAddress || '').replace(/\n/g, ' / ')}</td>
+                  <td style={{ ...dispatchStyles.td, fontSize: 12 }}>{s.esoAddress}</td>
+                  <td style={{ ...dispatchStyles.td, textAlign: 'right' }}>{s.score?.toFixed(2)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <div style={dispatchStyles.sampleBlock}>
+          <h4 style={dispatchStyles.sampleHeader}>Recent unmatched (presumed mutual aid)</h4>
+          <table style={dispatchStyles.monthlyTable}>
+            <thead><tr>{['Date', 'Time', 'Dispatch address', 'Description'].map(h => <th key={h} style={dispatchStyles.th}>{h}</th>)}</tr></thead>
+            <tbody>
+              {report.samples.unmatched.slice(0, 8).map((s, i) => (
+                <tr key={i} style={dispatchStyles.tr}>
+                  <td style={dispatchStyles.td}>{s.dispatch_date}</td>
+                  <td style={dispatchStyles.td}>{s.dispatch_time}</td>
+                  <td style={{ ...dispatchStyles.td, fontSize: 12 }}>{(s.dispatchAddress || '').replace(/\n/g, ' / ')}</td>
+                  <td style={{ ...dispatchStyles.td, fontSize: 12, color: '#666' }}>{s.description?.slice(0, 80)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </details>
+    </div>
+  );
+}
+
+const dispatchStyles = {
+  topRow:        { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 16, marginBottom: 16 },
+  bigStat:       { padding: '14px 18px', borderRadius: 8, background: '#fafbfc', border: '1px solid #eee' },
+  bigValue:      { fontSize: 32, fontWeight: 800, lineHeight: 1.1 },
+  bigLabel:      { fontSize: 13, color: '#444', marginTop: 4, fontWeight: 600 },
+  bigSub:        { fontSize: 11, color: '#888', marginTop: 2 },
+  proportionBar: { display: 'flex', height: 14, borderRadius: 7, overflow: 'hidden', background: '#eee', marginBottom: 16 },
+  barSegment:    { height: '100%' },
+  dist:          { fontSize: 13, color: '#444', marginBottom: 16 },
+  monthlyWrap:   { overflowX: 'auto' },
+  monthlyTable:  { width: '100%', borderCollapse: 'collapse', fontSize: 13 },
+  th:            { background: '#f0f2f5', padding: '8px 12px', textAlign: 'left', fontWeight: 700, color: '#333' },
+  tr:            { borderBottom: '1px solid #f0f0f0' },
+  td:            { padding: '7px 12px' },
+  samples:       { marginTop: 16, background: '#fafbfc', borderRadius: 8, padding: 12 },
+  summary:       { cursor: 'pointer', fontWeight: 600, color: '#1a3a6b' },
+  sampleBlock:   { marginTop: 14 },
+  sampleHeader:  { fontSize: 13, fontWeight: 700, color: '#444', margin: '12px 0 6px' },
+};
 
 // ─── Columns config ────────────────────────────────────────────────────────────
 const COLUMNS = [
@@ -116,7 +248,8 @@ export default function CorpsOverview() {
     );
   }
 
-  const { data: trend,   loading: tl } = useApi(getCorpsTrend, [24], []);
+  const { data: dispatch, loading: dl } = useApi(getDispatchReport, [year], [year]);
+  const { data: trend,    loading: tl } = useApi(getCorpsTrend, [24], []);
   const { data: monthly, loading: ml } = useApi(getCorpsMonth,  [year, month], [year, month]);
   const { data: board,   loading: bl } = useApi(getLeaderboard, [year, month], [year, month]);
 
@@ -279,6 +412,27 @@ export default function CorpsOverview() {
         </p>
         {tl ? <p style={styles.loading}>Loading…</p>
             : <CrewPerCallChart data={trend} selectedYear={year} selectedMonth={month} />}
+      </div>
+
+      {/* Dispatch response — matched ESO calls vs. mutual-aid losses */}
+      <div style={styles.section}>
+        <h2 style={styles.h2}>Dispatch Response — {year}</h2>
+        <p style={styles.subtle}>
+          Police dispatches from iamresponding.com matched against ESO call
+          records. Unmatched dispatches are classified as mutual aid (we were
+          paged but another agency picked up the run). Confidence threshold:
+          0.85 address similarity within a ±15 min / +3 hr window.
+        </p>
+        {dl ? (
+          <p style={styles.loading}>Loading…</p>
+        ) : !dispatch || dispatch.total === 0 ? (
+          <p style={styles.subtle}>
+            No dispatches imported for {year}. Upload an IAR dispatch export
+            from the Import Data page to see the breakdown.
+          </p>
+        ) : (
+          <DispatchPanel report={dispatch} />
+        )}
       </div>
 
       {/* Rides-per-member histogram */}

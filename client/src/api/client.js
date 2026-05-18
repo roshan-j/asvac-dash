@@ -26,6 +26,17 @@ export const uploadClockin = (file) => {
   form.append('file', file);
   return api.post('/api/data/upload/clockin', form).then(r => r.data);
 };
+export const uploadDispatches = (file) => {
+  const form = new FormData();
+  form.append('file', file);
+  return api.post('/api/data/upload/dispatches', form).then(r => r.data);
+};
+
+// ── Dispatch matching ─────────────────────────────────────────────────────────
+export const getDispatchReport = (year) =>
+  api.get(`/api/data/dispatches/match-report?year=${year}`).then(r => r.data);
+export const rematchDispatches = (year) =>
+  api.post(`/api/data/dispatches/rematch?year=${year}`).then(r => r.data);
 
 // ── Sheets ────────────────────────────────────────────────────────────────────
 export const syncSheets = () => api.post('/api/sheets/sync').then(r => r.data);
