@@ -138,6 +138,26 @@ db.exec(`
     display_name TEXT,                  -- name as it appears in crew_roster.json
     PRIMARY KEY (member_id, crew_number)
   );
+
+  -- ─── Dispatch matching ─────────────────────────────────────────────────────
+  -- One row per police-dispatch from iamresponding.com. Each is matched against
+  -- riding_points (ESO) to identify which dispatches we responded to vs. lost
+  -- to mutual aid. matched_call_number is NULL for unmatched (mutual aid).
+  CREATE TABLE IF NOT EXISTS dispatches (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    dispatch_date       TEXT NOT NULL,           -- YYYY-MM-DD (local)
+    dispatch_time       TEXT NOT NULL,           -- HH:MM:SS  (24h, local)
+    raw_address         TEXT,                    -- as parsed, may be multi-line
+    raw_description     TEXT,                    -- free-text descr (e.g. "head injuries from a fall")
+    normalized_address  TEXT,                    -- canonical "house# street" for matching
+    matched_call_number TEXT,                    -- ESO call_number (NULL = mutual aid)
+    match_score         REAL,                    -- 0.0–1.0 confidence; NULL if no candidate considered
+    matched_at          TEXT,                    -- when matcher last ran for this row
+    imported_at         TEXT DEFAULT (datetime('now')),
+    UNIQUE(dispatch_date, dispatch_time, raw_address)
+  );
+  CREATE INDEX IF NOT EXISTS idx_dispatches_date  ON dispatches(dispatch_date);
+  CREATE INDEX IF NOT EXISTS idx_dispatches_match ON dispatches(matched_call_number);
 `);
 
 // ─── Migrations ───────────────────────────────────────────────────────────────
@@ -166,6 +186,26 @@ db.exec(`
   if (cols.length && !cols.some(c => c.name === 'display_name')) {
     db.exec('ALTER TABLE crew_members ADD COLUMN display_name TEXT');
     console.log('[db] migrated: added display_name column to crew_members');
+  }
+}
+
+// v5: scene_address on riding_points (Scene Address 1 from ESO export,
+// used by dispatchMatcher to fuzzy-match police dispatches to actual calls)
+{
+  const cols = db.pragma('table_info(riding_points)');
+  if (!cols.some(c => c.name === 'scene_address')) {
+    db.exec('ALTER TABLE riding_points ADD COLUMN scene_address TEXT');
+    console.log('[db] migrated: added scene_address column to riding_points');
+  }
+}
+
+// v6: index riding_points by call_number + call_date for matcher lookups
+{
+  const indexes = db.prepare("SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='riding_points'").all();
+  if (!indexes.some(i => i.name === 'idx_riding_points_callnum')) {
+    db.exec('CREATE INDEX IF NOT EXISTS idx_riding_points_callnum ON riding_points(call_number)');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_riding_points_calldate ON riding_points(call_date)');
+    console.log('[db] migrated: added call_number/call_date indexes on riding_points');
   }
 }
 

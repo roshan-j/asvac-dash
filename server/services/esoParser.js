@@ -113,6 +113,9 @@ const COL_A_MEMBER    = 'pm complete person name';
 const COL_B_ID        = ['eso record id', 'patient care record id'];
 const COL_B_TIMESTAMP = 'time in eso record created date';
 const COL_B_MEMBER    = 'crew full name';
+// Scene Address is optional — only the newest export includes it. When present,
+// dispatchMatcher uses it to match police-dispatch addresses against ESO calls.
+const COL_B_ADDRESS   = 'scene address 1';
 
 /**
  * Detect export format and return column name mapping.
@@ -127,11 +130,18 @@ function findHeaders(rawHeaders) {
   if (idIdx !== -1) {
     const tsIdx = lower.findIndex(h => h === COL_B_TIMESTAMP);
     const mbIdx = lower.findIndex(h => h === COL_B_MEMBER);
+    const adIdx = lower.findIndex(h => h === COL_B_ADDRESS);  // optional
     if (tsIdx === -1 || mbIdx === -1) throw new Error(
       'Detected new ESO format (has "ESO Record ID") but missing expected columns. ' +
       `Found: ${rawHeaders.join(', ')}`
     );
-    return { format: 'B', tsCol: rawHeaders[tsIdx], mbCol: rawHeaders[mbIdx], idCol: rawHeaders[idIdx] };
+    return {
+      format: 'B',
+      tsCol: rawHeaders[tsIdx],
+      mbCol: rawHeaders[mbIdx],
+      idCol: rawHeaders[idIdx],
+      adCol: adIdx !== -1 ? rawHeaders[adIdx] : null,
+    };
   }
 
   // Fall back to Format A
@@ -150,7 +160,7 @@ function findHeaders(rawHeaders) {
 
 function parseRows(rows) {
   if (!rows || rows.length === 0) return [];
-  const { format, tsCol, mbCol, idCol } = findHeaders(Object.keys(rows[0]));
+  const { format, tsCol, mbCol, idCol, adCol } = findHeaders(Object.keys(rows[0]));
 
   const records = [];
   for (const row of rows) {
@@ -168,7 +178,14 @@ function parseRows(rows) {
       : String(rawDate || '').trim();
 
     if (!callKey) continue;
-    records.push({ callDate, callTime, callKey, memberName });
+
+    // Scene Address 1 — populated only when the export includes it. Trimmed
+    // but otherwise preserved; normalization happens in dispatchMatcher.
+    const sceneAddress = (adCol && row[adCol])
+      ? String(row[adCol]).trim() || null
+      : null;
+
+    records.push({ callDate, callTime, callKey, memberName, sceneAddress });
   }
   return records;
 }
@@ -215,13 +232,17 @@ function importEsoData(buffer, filename, batchId) {
     },
   };
 
-  // On re-import we backfill call_time without touching points or import_batch.
+  // On re-import we backfill call_time AND scene_address without touching points
+  // or import_batch. COALESCE prefers the newer value but keeps an existing
+  // non-NULL when the new row's column is blank (defensive — older exports
+  // without Scene Address 1 shouldn't blank out a previously-populated address).
   const insertPoint = db.prepare(`
     INSERT INTO riding_points
-      (member_id, call_date, call_number, call_type, points, import_batch, call_time)
-    VALUES (?, ?, ?, NULL, ?, ?, ?)
+      (member_id, call_date, call_number, call_type, points, import_batch, call_time, scene_address)
+    VALUES (?, ?, ?, NULL, ?, ?, ?, ?)
     ON CONFLICT(member_id, call_date, call_number) DO UPDATE SET
-      call_time = excluded.call_time
+      call_time     = COALESCE(excluded.call_time, riding_points.call_time),
+      scene_address = COALESCE(excluded.scene_address, riding_points.scene_address)
   `);
 
   let inserted = 0, skipped = 0;
@@ -242,7 +263,8 @@ function importEsoData(buffer, filename, batchId) {
         rec.callKey,      // stored as call_number for deduplication
         POINTS_PER_CALL,
         batchId,
-        rec.callTime      // "HH:MM" or null — enables shift-response multiplier
+        rec.callTime,     // "HH:MM" or null — enables shift-response multiplier
+        rec.sceneAddress  // "1015 Saw Mill River Road" or null — for dispatch matcher
       );
 
       if (result.changes > 0) inserted++;
