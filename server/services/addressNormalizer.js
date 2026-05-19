@@ -23,8 +23,24 @@
 // so the standard regex/street-type machinery can recognize them.
 // "1017 SMRR" → "1017 Saw Mill River Road" makes 62+ Atria/Sunrise dispatches
 // matchable against ESO scene addresses.
+//
+// "Saw Mill River" (bare, without a suffix) is treated as "Saw Mill River
+// Road" because the Parkway is almost always explicitly named (or carries a
+// mile marker), so a bare reference is the local road. Negative lookahead
+// avoids double-substituting when "Road" / "Parkway" already follows.
 const LOCAL_ABBREVS = [
-  [/\bsmrr\b/gi,  'saw mill river road'],
+  [/\bsmrr\b/gi, 'saw mill river road'],
+  // "SAWMILL" as one word — dispatcher typo, seen in
+  // "1017 SAWMILL RIVER ROAD ATRIA WOODLANDS" — convert to spaced form so the
+  // similarity comparison matches ESO's spaced "Saw Mill River Road".
+  [/\bsawmill\b/gi, 'saw mill'],
+  // "SMR" — less common single-R typo for SMRR, seen in "1015 SMR ROAD #516"
+  [/\bsmr\b(?=\s+(road|rd)\b)/gi, 'saw mill river'],
+  // "Saw Mill River" without a suffix — treat as Road. The Parkway is almost
+  // always explicitly named (or carries a mile marker / "northbound" etc.),
+  // so a bare reference is the local road. Negative lookahead avoids
+  // double-substituting when Road/Parkway already follows.
+  [/\bsaw mill river\b(?![\s,]+(?:road|rd|parkway|pkwy)\b)/gi, 'saw mill river road'],
 ];
 
 // Local cities/states/zip-prefix tokens we want to drop. Add as needed.

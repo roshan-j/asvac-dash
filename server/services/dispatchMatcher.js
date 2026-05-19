@@ -68,11 +68,15 @@ const OUT_OF_AREA_RE = new RegExp([
   'this call is in',
   // "2nd plectron" / "2nd plektron" — IAR's re-page signal, fired only when
   // the first page got no response. Per the corps's own description, this
-  // is a last-resort signal and the call usually goes to mutual aid.
+  // is a last-resort signal and the call usually goes to mutual aid. The
+  // "full crew still needed for the previous call" wording is the textual
+  // equivalent of a 2nd plectron — same semantics, same outcome.
   '\\b2nd plectron\\b',
   '\\b2nd plektron\\b',
   '\\bsecond plectron\\b',
   '\\bsecond plektron\\b',
+  '\\bfull crew still needed\\b',
+  '\\bfull crew (?:is )?still needed\\b',
 ].join('|'), 'i');
 
 // Highway / parkway calls — typically NYS Police territory, sometimes our

@@ -43,26 +43,42 @@ const HOUSE_PREFIX_RE = /^\d+\s+[A-Za-z]/;
 
 // Landmark fallback. The dispatcher sometimes writes a description-style
 // address that doesn't start with the house number — e.g. "ATRIA WOODLANDS
-// 1015 MEMORY CARE UNIT…". When the line contains both a known landmark
-// keyword and a plausible house number, we reconstruct the address from
-// the landmark's known street. Used as the last parser pass after the
-// strict house-prefix / street-type passes fail.
-//
-// House number candidate: 3–4 digit number (typical Ardsley range), to avoid
-// catching ages ("78 yr old"), apt numbers, mile markers, etc.
-const LANDMARK_TO_STREET = [
-  { match: /\batria\s+woodlands\b/i, street: 'Saw Mill River Road' },
-  { match: /\batria\b/i,             street: 'Saw Mill River Road' },
-  { match: /\bsunrise of ardsley\b/i,street: 'Saw Mill River Road' },
+// Memory Care 5th floor…" with no address line at all. The Atria assisted-
+// living complex occupies two adjacent buildings at 1015 and 1017 Saw Mill
+// River Road and accounts for the majority of our Ardsley calls, so we
+// match "Atria" aggressively: prefer 1015 or 1017 if either appears on the
+// line, otherwise default to 1015 (the larger building / common dispatch
+// default). The matcher's similarity threshold tolerates a 1015↔1017
+// mismatch (single-char Levenshtein scores 0.96 — well above 0.85), so a
+// wrong guess between the two still matches the right ESO call.
+const LANDMARKS = [
+  {
+    name:       'atria',
+    match:      /\batria\b/i,
+    candidates: ['1015', '1017'],
+    fallback:   '1015',
+    street:     'Saw Mill River Road',
+  },
+  {
+    name:       'sunrise of ardsley',
+    match:      /\bsunrise of ardsley\b/i,
+    candidates: ['1017'],
+    fallback:   '1017',
+    street:     'Saw Mill River Road',
+  },
 ];
-const LANDMARK_HOUSE_RE = /\b(\d{3,4})\b/;
 
 function detectLandmarkAddress(line) {
-  for (const lm of LANDMARK_TO_STREET) {
-    if (lm.match.test(line)) {
-      const m = line.match(LANDMARK_HOUSE_RE);
-      if (m) return `${m[1]} ${lm.street}`;
+  for (const lm of LANDMARKS) {
+    if (!lm.match.test(line)) continue;
+    // Prefer an explicit candidate house number from the line.
+    for (const num of lm.candidates) {
+      if (new RegExp(`\\b${num}\\b`).test(line)) {
+        return `${num} ${lm.street}`;
+      }
     }
+    // Landmark mentioned but no candidate house number → fall back to default.
+    return `${lm.fallback} ${lm.street}`;
   }
   return null;
 }
