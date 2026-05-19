@@ -9,6 +9,8 @@ const db      = require('../db/database');
 const stats   = require('../services/statsService');
 const { importEsoData }     = require('../services/esoParser');
 const { importClockinData } = require('../services/clockinParser');
+const { importDispatchData } = require('../services/dispatchParser');
+const { matchDispatchesInRange, buildMatchReport } = require('../services/dispatchMatcher');
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
 
@@ -34,6 +36,51 @@ router.post('/upload/clockin', upload.single('file'), (req, res) => {
     const result = importClockinData(req.file.buffer, req.file.originalname, batchId);
     res.json({ success: true, batchId, ...result });
   } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/data/upload/dispatches
+// Accepts an iamresponding.com SubscriberReportsDispatch.html export.
+// Idempotent — re-uploading the same file is safe (UNIQUE constraint on
+// date+time+address). Runs the dispatch matcher across the imported range
+// automatically so the match report reflects new rows immediately.
+router.post('/upload/dispatches', upload.single('file'), (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+    const result = importDispatchData(req.file.buffer, req.file.originalname);
+    res.json({ success: true, ...result });
+  } catch (err) {
+    console.error('[dispatches] upload failed:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/data/dispatches/match-report?year=YYYY
+// Returns matched / mutual-aid breakdown for the year plus spot-check samples.
+router.get('/dispatches/match-report', (req, res) => {
+  try {
+    const year = parseInt(req.query.year, 10) || new Date().getFullYear();
+    if (year < 2000 || year > 2100)
+      return res.status(400).json({ error: 'year must be between 2000 and 2100' });
+    res.json(buildMatchReport(year));
+  } catch (err) {
+    console.error('[dispatches] match-report failed:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/data/dispatches/rematch?year=YYYY
+// Re-runs the matcher across the year. Useful after a fresh ESO import has
+// landed new scene_address data — existing dispatches may now have matches
+// that were previously missing.
+router.post('/dispatches/rematch', (req, res) => {
+  try {
+    const year = parseInt(req.query.year, 10) || new Date().getFullYear();
+    const result = matchDispatchesInRange(`${year}-01-01`, `${year}-12-31`);
+    res.json({ success: true, year, ...result });
+  } catch (err) {
+    console.error('[dispatches] rematch failed:', err);
     res.status(500).json({ error: err.message });
   }
 });
