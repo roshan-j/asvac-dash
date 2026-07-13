@@ -252,7 +252,7 @@ const styles = {
   cardHead: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 },
   seasonToggle: { display: 'flex', gap: 6, flexWrap: 'wrap' },
   chip: { border: '1px solid #d4dce6', background: '#fff', color: '#3a4a5a', borderRadius: 999, padding: '5px 12px', fontSize: 12.5, fontWeight: 600, cursor: 'pointer' },
-  chipActive: { background: '#1a3a6b', color: '#fff', borderColor: '#1a3a6b' },
+  chipActive: { background: '#1a3a6b', color: '#fff', border: '1px solid #1a3a6b' },
   h2: { fontSize: 17, fontWeight: 700, color: '#1a2a3a', margin: '0 0 4px' },
   cardSub: { fontSize: 13, color: '#5a6b7b', margin: '0 0 14px' },
 

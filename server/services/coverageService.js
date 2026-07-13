@@ -213,6 +213,97 @@ function buildBreadth({ months = 12 } = {}) {
   };
 }
 
+// Block classification for a signup's start hour ("0800-1000" → 8 → morning).
+const SHIFT_BLOCK_SQL = `
+  CASE
+    WHEN CAST(substr(shift_time,1,2) AS INTEGER) >= 22 OR CAST(substr(shift_time,1,2) AS INTEGER) < 6 THEN 'overnight'
+    WHEN CAST(substr(shift_time,1,2) AS INTEGER) < 10 THEN 'morning'
+    WHEN CAST(substr(shift_time,1,2) AS INTEGER) < 18 THEN 'day'
+    ELSE 'evening'
+  END`;
+const RIDE_BLOCK_SQL = `
+  CASE
+    WHEN call_time >= '22:00' OR call_time < '06:00' THEN 'overnight'
+    WHEN call_time < '10:00' THEN 'morning'
+    WHEN call_time < '18:00' THEN 'day'
+    ELSE 'evening'
+  END`;
+
+/**
+ * Named-ask generator. For one target slot (day-of-week × block), rank the
+ * active-adult roster into tiers of WHO to personally ask:
+ *   1. Spread the load — non-heroes who've shown up in this slot before
+ *      (rode or signed up). Asking them grows breadth off the heroes.
+ *   2. Reliable fallback — heroes who cover this slot; use if Tier 1 comes up short.
+ *   3. Cold ask — active adults with no history in this slot.
+ * Affinity = slot rides (last 24mo) + slot signups. Hero = a top-10 active-adult
+ * rider by 12-month volume.
+ */
+function buildNamedAsks({ dow, block }) {
+  const maxRow = db.prepare(`SELECT MAX(call_date) AS d FROM riding_points`).get();
+  if (!maxRow.d) return null;
+  const since12 = db.prepare(`SELECT date(@d,'-12 months') AS s`).get({ d: maxRow.d }).s;
+  const since24 = db.prepare(`SELECT date(@d,'-24 months') AS s`).get({ d: maxRow.d }).s;
+  const ACTIVE = `(exclusion IS NULL OR exclusion != 'leave')`;
+
+  const rows = db.prepare(`
+    WITH aa AS (
+      SELECT member_id, MIN(crew_number) AS crew FROM crew_members
+      WHERE ${ACTIVE} GROUP BY member_id
+    ),
+    sr AS (
+      SELECT member_id, COUNT(*) AS n FROM riding_points
+      WHERE call_time IS NOT NULL AND call_date >= @since24
+        AND CAST(strftime('%w', call_date) AS INTEGER) = @dow
+        AND ${RIDE_BLOCK_SQL} = @block
+      GROUP BY member_id
+    ),
+    ss AS (
+      SELECT member_id, COUNT(*) AS n FROM shift_signups
+      WHERE CAST(strftime('%w', shift_date) AS INTEGER) = @dow
+        AND ${SHIFT_BLOCK_SQL} = @block
+      GROUP BY member_id
+    ),
+    tr AS (
+      SELECT member_id, COUNT(*) AS n FROM riding_points
+      WHERE call_date >= @since12 GROUP BY member_id
+    )
+    SELECT m.id, m.name, m.phone, m.email, aa.crew,
+      COALESCE(sr.n,0) AS slotRides,
+      COALESCE(ss.n,0) AS slotSignups,
+      COALESCE(tr.n,0) AS totalRides
+    FROM aa JOIN members m ON m.id = aa.member_id
+    LEFT JOIN sr ON sr.member_id = aa.member_id
+    LEFT JOIN ss ON ss.member_id = aa.member_id
+    LEFT JOIN tr ON tr.member_id = aa.member_id
+  `).all({ dow, block, since12, since24 });
+
+  // Hero = top-10 active-adult rider by 12mo volume (min 1 ride).
+  const heroCut = [...rows].map(r => r.totalRides).filter(n => n > 0)
+    .sort((a, b) => b - a)[9] || 1;
+  rows.forEach(r => {
+    r.affinity = r.slotRides + r.slotSignups;
+    r.hero = r.totalRides >= heroCut && r.totalRides > 0;
+  });
+
+  const byAffinity = (a, b) => b.affinity - a.affinity || a.totalRides - b.totalRides;
+  const tier1 = rows.filter(r => r.affinity > 0 && !r.hero).sort(byAffinity).slice(0, 10);
+  const tier2 = rows.filter(r => r.affinity > 0 && r.hero).sort(byAffinity).slice(0, 6);
+  const tier3 = rows.filter(r => r.affinity === 0)
+    .sort((a, b) => (a.hero - b.hero) || b.totalRides - a.totalRides).slice(0, 8);
+
+  return {
+    slot: { dow, dowLabel: DOW[dow], block, blockLabel: (BLOCKS.find(b => b.key === block) || {}).label,
+            blockRange: (BLOCKS.find(b => b.key === block) || {}).range },
+    heroCut,
+    tiers: [
+      { key: 'spread', title: 'Spread the load', subtitle: 'Non-heroes who cover this slot — ask these first to build breadth.', people: tier1 },
+      { key: 'fallback', title: 'Reliable fallback', subtitle: 'Heroes who cover this slot — if the asks above come up short.', people: tier2 },
+      { key: 'cold', title: 'Cold ask', subtitle: 'Active adults with no history in this slot — a stretch, but reachable.', people: tier3 },
+    ],
+  };
+}
+
 /** Full payload for the Coverage view. */
 function buildCoverageReport({ since = null, months = null, breadthMonths = 12 } = {}) {
   return {
@@ -226,4 +317,4 @@ function buildCoverageReport({ since = null, months = null, breadthMonths = 12 }
   };
 }
 
-module.exports = { buildCoverageReport, buildGapMap, buildOverall, buildBreadth, detectSeasons };
+module.exports = { buildCoverageReport, buildGapMap, buildOverall, buildBreadth, detectSeasons, buildNamedAsks };

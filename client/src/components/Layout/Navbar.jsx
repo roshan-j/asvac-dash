@@ -3,6 +3,7 @@ import { Link, useLocation } from 'react-router-dom';
 const NAV_LINKS = [
   { to: '/',          label: 'Corps Overview' },
   { to: '/coverage',  label: 'Coverage Gap'   },
+  { to: '/asks',      label: 'Named Asks'     },
   { to: '/members',   label: 'Members'        },
   { to: '/upload',    label: 'Import Data'    },
   { to: '/email',     label: 'Email Reports'  },

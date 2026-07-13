@@ -36,6 +36,8 @@ export const uploadDispatches = (file) => {
 // ── Coverage gap map (the "patchwork quilt" instrument) ───────────────────────
 export const getCoverageReport = (params = {}) =>
   api.get('/api/coverage/report', { params }).then(r => r.data);
+export const getNamedAsks = (dow, block) =>
+  api.get('/api/coverage/named-asks', { params: { dow, block } }).then(r => r.data);
 
 // ── Dispatch matching ─────────────────────────────────────────────────────────
 export const getDispatchReport = (year) =>

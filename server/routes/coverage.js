@@ -7,9 +7,26 @@
  */
 
 const express = require('express');
-const { buildCoverageReport } = require('../services/coverageService');
+const { buildCoverageReport, buildNamedAsks } = require('../services/coverageService');
 
 const router = express.Router();
+
+const BLOCK_KEYS = ['overnight', 'morning', 'day', 'evening'];
+
+// GET /api/coverage/named-asks?dow=6&block=evening — tiered who-to-ask list.
+router.get('/named-asks', (req, res) => {
+  try {
+    const dow = parseInt(req.query.dow, 10);
+    const block = String(req.query.block || '');
+    if (!(dow >= 0 && dow <= 6) || !BLOCK_KEYS.includes(block)) {
+      return res.status(400).json({ error: 'dow (0-6) and block (overnight|morning|day|evening) required' });
+    }
+    res.json(buildNamedAsks({ dow, block }));
+  } catch (err) {
+    console.error('[coverage] named-asks failed:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
 
 router.get('/report', (req, res) => {
   try {
