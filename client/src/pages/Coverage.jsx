@@ -210,8 +210,7 @@ export default function Coverage() {
         record) plus in-area calls with no crew fielded. Out-of-area, highway/parkway, and
         unparseable dispatches are excluded — they were never ours. The miss rate is an upper bound:
         some "misses" may be calls we rode where the address didn't match. Address matching is high-confidence
-        (≥0.85 similarity). <strong>2025 dispatch data is not loaded</strong> — the trend jumps 2024 → 2026;
-        import it to close the gap.
+        (≥0.85 similarity). Dispatch data spans 2020–2026 continuously.
       </div>
     </div>
   );
