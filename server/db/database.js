@@ -154,6 +154,7 @@ db.exec(`
     match_score         REAL,                    -- 0.0–1.0 confidence; NULL if no candidate considered
     matched_at          TEXT,                    -- when matcher last ran for this row
     imported_at         TEXT DEFAULT (datetime('now')),
+    import_batch        TEXT,                    -- 'dispatch-{epochMs}', one per upload (see import history)
     UNIQUE(dispatch_date, dispatch_time, raw_address)
   );
   CREATE INDEX IF NOT EXISTS idx_dispatches_date  ON dispatches(dispatch_date);
@@ -218,6 +219,33 @@ db.exec(`
   if (cols.length && !cols.some(c => c.name === 'aid_category')) {
     db.exec("ALTER TABLE dispatches ADD COLUMN aid_category TEXT");
     console.log('[db] migrated: added aid_category column to dispatches');
+  }
+}
+
+// v8: import_batch on dispatches — a real per-upload batch id ({prefix}-{epochMs},
+// matching riding_points/nonriding_points) so import history groups dispatches by
+// upload rather than by whole-second imported_at. Backfills existing rows from
+// imported_at (UTC → epoch ms) so pre-migration uploads keep a stable batch id.
+{
+  const cols = db.pragma('table_info(dispatches)');
+  if (cols.length && !cols.some(c => c.name === 'import_batch')) {
+    db.exec("ALTER TABLE dispatches ADD COLUMN import_batch TEXT");
+    db.exec(`
+      UPDATE dispatches
+      SET import_batch = 'dispatch-' || (CAST(strftime('%s', imported_at) AS INTEGER) * 1000)
+      WHERE import_batch IS NULL AND imported_at IS NOT NULL
+    `);
+    console.log('[db] migrated: added import_batch column to dispatches (backfilled from imported_at)');
+  }
+}
+
+// v9: phone on members — populated from the crew roster (crew_roster.json) by
+// crewRosterService. Enables SMS/named-ask outreach from coverage data.
+{
+  const cols = db.pragma('table_info(members)');
+  if (!cols.some(c => c.name === 'phone')) {
+    db.exec('ALTER TABLE members ADD COLUMN phone TEXT');
+    console.log('[db] migrated: added phone column to members');
   }
 }
 

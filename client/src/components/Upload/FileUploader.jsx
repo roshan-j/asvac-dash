@@ -43,7 +43,7 @@ const UPLOAD_TYPES = [
   },
 ];
 
-function UploadCard({ type }) {
+function UploadCard({ type, onSuccess }) {
   const [status,  setStatus]  = useState(null);   // null | 'uploading' | 'success' | 'error'
   const [result,  setResult]  = useState(null);
   const [message, setMessage] = useState('');
@@ -58,6 +58,7 @@ function UploadCard({ type }) {
       const res = await type.fn(file);
       setResult(res);
       setStatus('success');
+      onSuccess?.();
     } catch (err) {
       setMessage(err.response?.data?.error || err.message);
       setStatus('error');
@@ -103,7 +104,7 @@ function UploadCard({ type }) {
   );
 }
 
-function SheetsSyncCard() {
+function SheetsSyncCard({ onSuccess }) {
   const [status,  setStatus]  = useState(null);
   const [result,  setResult]  = useState(null);
   const [message, setMessage] = useState('');
@@ -115,6 +116,7 @@ function SheetsSyncCard() {
       const res = await syncSheets();
       setResult(res);
       setStatus('success');
+      onSuccess?.();
     } catch (err) {
       setMessage(err.response?.data?.error || err.message);
       setStatus('error');
@@ -152,13 +154,13 @@ function SheetsSyncCard() {
   );
 }
 
-export default function FileUploader() {
+export default function FileUploader({ onSuccess }) {
   return (
     <div>
       <h2 style={styles.sectionTitle}>Import Data</h2>
       <div style={styles.grid}>
-        {UPLOAD_TYPES.map(t => <UploadCard key={t.key} type={t} />)}
-        <SheetsSyncCard />
+        {UPLOAD_TYPES.map(t => <UploadCard key={t.key} type={t} onSuccess={onSuccess} />)}
+        <SheetsSyncCard onSuccess={onSuccess} />
       </div>
     </div>
   );

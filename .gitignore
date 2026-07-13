@@ -33,3 +33,10 @@ Thumbs.db
 .vscode/
 .idea/
 *.swp
+
+# Local data exports & scratch (added 2026-07-13)
+/TimeStation_Report_*.csv
+/widget*.csv
+/client/"$DB"
+.claude/
+MEMORY/

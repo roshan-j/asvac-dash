@@ -14,6 +14,7 @@ export const getLeaderboard     = (year, month) => api.get(`/api/data/leaderboar
 export const getMemberTrend     = (id, months)  => api.get(`/api/data/members/${id}/trend?months=${months}`).then(r => r.data);
 export const getMemberSummary   = (id, y, m)    => api.get(`/api/data/members/${id}/summary?year=${y}&month=${m}`).then(r => r.data);
 export const getImportHistory   = ()            => api.get('/api/data/import-history').then(r => r.data);
+export const getNightCalls      = (year, month) => api.get(`/api/data/night-calls?year=${year}&month=${month}`).then(r => r.data);
 
 // ── File Upload ───────────────────────────────────────────────────────────────
 export const uploadEso = (file) => {
@@ -31,6 +32,10 @@ export const uploadDispatches = (file) => {
   form.append('file', file);
   return api.post('/api/data/upload/dispatches', form).then(r => r.data);
 };
+
+// ── Coverage gap map (the "patchwork quilt" instrument) ───────────────────────
+export const getCoverageReport = (params = {}) =>
+  api.get('/api/coverage/report', { params }).then(r => r.data);
 
 // ── Dispatch matching ─────────────────────────────────────────────────────────
 export const getDispatchReport = (year) =>

@@ -1,62 +1,68 @@
 {
-  "_comment": "ASVAC night-crew roster. Source: Crew_List_ASVAC_02282026 master copy last version.pdf. Edit annually when the crew list is reissued. exclusions.type values: 'FDC' (Full Day Crew), 'leave' (medical/personnel), 'probationary' (not yet eligible for full night-crew totals). nameAliases lets a roster name route to an existing DB member that's stored under a different name (e.g. ESO writes 'Tony' but the corps prefers 'Haitham').",
-  "version": "2025-04-26",
-  "nameAliases": {},
+  "_comment": "ASVAC crew roster. Source: Crew_List_ASVAC_050226 master copy last version.pdf (Valid from May 22nd 2026). Edit when the corps reissues the list. exclusions.type values: 'FDC' (Full Day Crew), 'admin' (administrative staff not on a night crew), 'TMP' (temporary member), 'probationary' (PM — not yet eligible for full night-crew totals), 'leave' (medical/personnel — NOT an active adult). nameAliases routes a roster name to an existing DB member stored under a different name (e.g. ESO writes 'Haitham Rabadi' but the roster/corps says 'Tony Rabadi'). Active-adult set = every row here whose exclusion is not 'leave'. Day-crew/admin/temp use crew 0 (no night crew).",
+  "version": "2026-05-22",
+  "nameAliases": {
+    "Tony Rabadi": "Haitham Rabadi"
+  },
   "crews": {
     "1": [
-      { "name": "Steve Greenfeld",  "rank": "EMT", "role": "Crew Chief"  },
-      { "name": "Chendong Pan",     "rank": "EMT", "role": "Non-Driver"  },
-      { "name": "Jia Li",           "rank": "EMT", "role": "Driver"      },
-      { "name": "Jodie Reaver",     "rank": "EMR", "role": "Driver"      },
-      { "name": "Sarah Berkowitz",  "rank": "EMS", "role": "Driver"      }
+      { "name": "Steve Greenfeld",     "rank": "EMT", "role": "Crew Chief",  "phone": "914-837-6841" },
+      { "name": "Chendong Pan",        "rank": "EMT", "role": "Non-Driver",  "phone": "786-210-2018" },
+      { "name": "Jia Li",              "rank": "EMT", "role": "Driver",      "phone": "718-639-0184" },
+      { "name": "Jodie Reaver",        "rank": "EMR", "role": "Driver",      "phone": "718-308-1437" },
+      { "name": "Sarah Berkowitz",     "rank": "EMS", "role": "Driver",      "phone": "914-907-1982" }
     ],
     "2": [
-      { "name": "Melissa Jhunja",   "rank": "EMT", "role": "Crew Chief"  },
-      { "name": "Jim Hughes",       "rank": "EMT", "role": "Driver"      },
-      { "name": "Anissa Elahi",     "rank": "EMT", "role": "Non-Driver"  },
-      { "name": "Alan Gallantar",   "rank": "EMT", "role": "Driver"      },
-      { "name": "Pankaj Batra",     "rank": "EMR", "role": "Non-Driver"  },
-      { "name": "Manoj Nambiar",    "rank": "EMR", "role": "Driver"      },
-      { "name": "Edith Fung",       "rank": "EMS", "role": "Driver"      }
+      { "name": "Melissa Jhunja",      "rank": "EMT", "role": "Crew Chief",  "phone": "203-273-9269" },
+      { "name": "Anissa Elahi",        "rank": "EMT", "role": "Non-Driver",  "phone": "845-659-6460" },
+      { "name": "Pankaj Batra",        "rank": "EMR", "role": "Non-Driver",  "phone": "914-255-3780" },
+      { "name": "Manoj Nambiar",       "rank": "EMR", "role": "Driver",      "phone": "646-696-6005" },
+      { "name": "Edith Fung",          "rank": "EMS", "role": "Driver",      "phone": "917-957-6323" }
     ],
     "3": [
-      { "name": "Nisha Nambiar",    "rank": "EMT", "role": "Crew Chief"  },
-      { "name": "John Clear",       "rank": "EMT", "role": "Crew Chief"  },
-      { "name": "Shijo Zacharias",  "rank": "EMT", "role": "Driver"      },
-      { "name": "Susan Moskowitz",  "rank": "EMR", "role": "Driver"      }
+      { "name": "Nisha Nambiar",       "rank": "EMT", "role": "Crew Chief",  "phone": "347-880-0264" },
+      { "name": "Shijo Zacharias",     "rank": "EMT", "role": "Driver",      "phone": "646-469-1429" },
+      { "name": "Patrick Smith",       "rank": "EMT", "role": "Driver",      "phone": "631-223-6028" },
+      { "name": "Susan Moskowitz",     "rank": "EMR", "role": "Driver",      "phone": "917-604-5571" },
+      { "name": "Yu Zhou",             "rank": "EMS", "role": "Non-Driver",  "phone": "631-838-9681" }
     ],
     "4": [
-      { "name": "Nishith Shah",     "rank": "EMT", "role": "Crew Chief"  },
-      { "name": "Christopher Rich", "rank": "EMT", "role": "EMT"         },
-      { "name": "Roshan Jhunja",    "rank": "EMR", "role": "Driver"      },
-      { "name": "Jing Chen",        "rank": "EMS", "role": "Driver"      }
+      { "name": "Nishith Shah",        "rank": "EMT", "role": "Crew Chief",  "phone": "914-548-1996" },
+      { "name": "Juan Wiley",          "rank": "EMT", "role": "Non-Driver",  "phone": "845-520-1232" },
+      { "name": "Alan Gallantar",      "rank": "EMT", "role": "Driver",      "phone": "914-469-6658" },
+      { "name": "Roshan Jhunja",       "rank": "EMR", "role": "Driver",      "phone": "203-258-4144" },
+      { "name": "Jing Chen",           "rank": "EMS", "role": "Driver",      "phone": "914-888-1618" },
+      { "name": "Alexis Ablezer",      "rank": "EMS", "role": "Non-Driver",  "phone": "516-314-8395" }
     ],
     "5": [
-      { "name": "Haitham Rabadi",   "rank": "EMT", "role": "Crew Chief"  },
-      { "name": "Greg Khitrov",     "rank": "EMT", "role": "Crew Chief"  },
-      { "name": "Kaushik Mody",     "rank": "EMT", "role": "Driver"      },
-      { "name": "Patricia Leone",   "rank": "EMS", "role": "Driver"      },
-      { "name": "Erica Rosenfeld",  "rank": "EMR", "role": "Driver"      }
+      { "name": "Tony Rabadi",         "rank": "EMT", "role": "Crew Chief",  "phone": "914-494-1402" },
+      { "name": "Greg Khitrov",        "rank": "EMT", "role": "Crew Chief",  "phone": "917-340-6835" },
+      { "name": "Kaushik Mody",        "rank": "EMT", "role": "Driver",      "phone": "646-637-5582" },
+      { "name": "Erica Rosenfeld",     "rank": "EMR", "role": "Driver",      "phone": "917-767-4630" },
+      { "name": "Richard Ablezer",     "rank": "EMS", "role": "Driver",      "phone": "914-391-6376" },
+      { "name": "Deepu Daniel",        "rank": "EMS", "role": "Non-Driver",  "phone": "336-420-2796" }
     ],
     "6": [
-      { "name": "Craig Ascher",     "rank": "EMT", "role": "Crew Chief"  },
-      { "name": "Michelle Moses",   "rank": "EMT", "role": "Driver"      },
-      { "name": "Juan Wiley",       "rank": "EMT", "role": "Non-Driver"  },
-      { "name": "Siddharth Arora",  "rank": "EMR", "role": "Driver"      },
-      { "name": "Divya Singal",     "rank": "EMR", "role": "Non-Driver"  }
+      { "name": "Craig Ascher",        "rank": "EMT", "role": "Crew Chief",  "phone": "917-270-0245" },
+      { "name": "Michelle Moses",      "rank": "EMT", "role": "Driver",      "phone": "914-671-4828" },
+      { "name": "Siddharth Arora",     "rank": "EMR", "role": "Driver",      "phone": "917-504-7413" },
+      { "name": "Divya Singal",        "rank": "EMR", "role": "Non-Driver",  "phone": "914-255-3778" }
     ]
   },
   "exclusions": [
-    { "name": "Morry Silbiger",    "crew": 5, "rank": "EMT", "role": "Driver",     "type": "FDC"          },
-    { "name": "Roy Haddad",        "crew": 5, "rank": "EMS", "role": "Driver",     "type": "FDC"          },
-    { "name": "Andy DiJusto",      "crew": 5, "rank": "EMR", "role": "Driver",     "type": "leave"        },
-    { "name": "Alan Greenwald",    "crew": 2, "rank": "EMT", "role": "Driver",     "type": "leave"        },
-    { "name": "Royce Varghese",    "crew": 1, "rank": "EMS", "role": "Non-Driver", "type": "probationary" },
-    { "name": "Patrick Smith",     "crew": 3, "rank": "EMT", "role": "Driver",     "type": "probationary" },
-    { "name": "Yu Zhou",           "crew": 3, "rank": "EMS", "role": "Non-Driver", "type": "probationary" },
-    { "name": "Jakub Olszowski",   "crew": 3, "rank": "EMS", "role": "Non-Driver", "type": "probationary" },
-    { "name": "Alexis Ablezer",    "crew": 4, "rank": "EMS", "role": "Non-Driver", "type": "probationary" },
-    { "name": "Richard Ablezer",   "crew": 5, "rank": "EMS", "role": "Non-Driver", "type": "probationary" },
-    { "name": "Kasime Mirsky",     "crew": 6, "rank": "EMS", "role": "Non-Driver", "type": "probationary" }
+    { "name": "Artit Jirapatnakul", "crew": 1, "rank": "EMS", "role": "Non-Driver", "type": "probationary", "phone": "484-995-7456" },
+    { "name": "Jakub Olszowski",    "crew": 2, "rank": "EMS", "role": "Driver",     "type": "probationary", "phone": "516-983-1100"  },
+    { "name": "Erika Bresler",      "crew": 3, "rank": "EMS", "role": "Non-Driver", "type": "probationary", "phone": "914-715-1688" },
+    { "name": "Kasime Mirsky",      "crew": 6, "rank": "EMT", "role": "Non-Driver", "type": "probationary", "phone": "718-509-5559" },
+    { "name": "Royce Varghese",     "crew": 6, "rank": "EMS", "role": "Driver",     "type": "probationary", "phone": "914-424-3353" },
+    { "name": "Morry Silbiger",     "crew": 0, "rank": "EMT", "role": "Driver",         "type": "FDC",   "phone": "914-462-1110" },
+    { "name": "Patricia Leone",     "crew": 0, "rank": "EMS", "role": "Driver",         "type": "FDC",   "phone": "914-674-4416" },
+    { "name": "Christopher Rich",   "crew": 0, "rank": "EMT", "role": "EMT",            "type": "FDC",   "phone": "914-316-2160" },
+    { "name": "John Clear",         "crew": 0, "rank": "EMT", "role": "Crew Chief",     "type": "FDC",   "phone": "914-356-5237" },
+    { "name": "Alan Greenwald",     "crew": 0, "rank": "EMT", "role": "Driver",         "type": "FDC",   "phone": "914-391-1254" },
+    { "name": "Frank Doherty",      "crew": 0, "rank": "EMT", "role": "Administrative", "type": "admin", "phone": "917-846-2121" },
+    { "name": "Roy Haddad",         "crew": 0, "rank": "EMS", "role": "Treasurer",      "type": "admin", "phone": "914-438-2331" },
+    { "name": "Liz Bitondo",        "crew": 0, "rank": "EMS", "role": "Secretary",      "type": "admin", "phone": "914-844-8986" },
+    { "name": "Paola Noca",         "crew": 0, "rank": "EMR", "role": "Temp",           "type": "TMP",   "phone": "914-770-5633" }
   ]
 }

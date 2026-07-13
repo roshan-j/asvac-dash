@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import Navbar        from './components/Layout/Navbar';
 import CorpsOverview from './pages/CorpsOverview';
+import Coverage      from './pages/Coverage';
 import MembersList   from './pages/MembersList';
 import MemberDetail  from './pages/MemberDetail';
 import ImportData    from './pages/ImportData';
@@ -22,6 +23,7 @@ export default function App() {
             <main style={styles.main}>
               <Routes>
                 <Route path="/"            element={<CorpsOverview />} />
+                <Route path="/coverage"    element={<Coverage />}      />
                 <Route path="/members"     element={<MembersList />}   />
                 <Route path="/members/:id" element={<MemberDetail />}  />
                 <Route path="/upload"      element={<ImportData />}    />

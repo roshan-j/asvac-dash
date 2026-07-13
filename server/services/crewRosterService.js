@@ -143,7 +143,14 @@ function seedCrewRoster() {
       display_name = excluded.display_name
   `);
 
-  let active = 0, excluded = 0;
+  // Only overwrite phone when the roster supplies one and the member's phone
+  // is currently empty or different — keeps the roster as the source of truth
+  // without nulling out a manually-entered number.
+  const setPhone = db.prepare(
+    `UPDATE members SET phone = ? WHERE id = ? AND (phone IS NULL OR phone != ?)`
+  );
+
+  let active = 0, excluded = 0, phones = 0;
 
   db.transaction(() => {
     wipe.run();
@@ -155,6 +162,7 @@ function seedCrewRoster() {
         if (row) {
           insert.run(row.id, crewNum, m.rank || null, m.role || null, null, idx, m.name);
           active++;
+          if (m.phone) { setPhone.run(m.phone, row.id, m.phone); phones++; }
         }
       });
     }
@@ -164,6 +172,7 @@ function seedCrewRoster() {
       if (row) {
         insert.run(row.id, ex.crew, ex.rank || null, ex.role || null, ex.type || 'leave', 999, ex.name);
         excluded++;
+        if (ex.phone) { setPhone.run(ex.phone, row.id, ex.phone); phones++; }
       }
     }
   })();
@@ -188,8 +197,8 @@ function seedCrewRoster() {
   if (orphansRemoved > 0) {
     console.log(`[roster] Removed ${orphansRemoved} orphan member row(s).`);
   }
-  console.log(`[roster] Seeded ${active} active + ${excluded} excluded crew members across 6 crews.`);
-  return { active, excluded, orphansRemoved };
+  console.log(`[roster] Seeded ${active} active + ${excluded} excluded crew members across 6 crews. Phones set: ${phones}.`);
+  return { active, excluded, orphansRemoved, phones };
 }
 
 /**

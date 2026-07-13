@@ -238,7 +238,7 @@ function parseDispatchHtml(buffer) {
  *
  * Returns { parsed, inserted, skipped, matched, mutualAid, dateRange }.
  */
-function importDispatchData(buffer, filename) {
+function importDispatchData(buffer, filename, batchId) {
   const records = parseDispatchHtml(buffer);
   if (records.length === 0) {
     throw new Error(
@@ -247,10 +247,12 @@ function importDispatchData(buffer, filename) {
     );
   }
 
+  // On re-import we refresh the free-text fields but leave import_batch alone so
+  // a row stays credited to its original upload (mirrors riding_points).
   const insertRow = db.prepare(`
     INSERT INTO dispatches
-      (dispatch_date, dispatch_time, raw_address, raw_description, normalized_address)
-    VALUES (?, ?, ?, ?, ?)
+      (dispatch_date, dispatch_time, raw_address, raw_description, normalized_address, import_batch)
+    VALUES (?, ?, ?, ?, ?, ?)
     ON CONFLICT(dispatch_date, dispatch_time, raw_address) DO UPDATE SET
       raw_description    = excluded.raw_description,
       normalized_address = excluded.normalized_address
@@ -266,7 +268,8 @@ function importDispatchData(buffer, filename) {
         r.dispatchTime,
         r.rawAddress,
         r.rawDescription,
-        r.normalizedAddress
+        r.normalizedAddress,
+        batchId
       );
       if (result.changes > 0) inserted++;
       else skipped++;

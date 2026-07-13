@@ -5,6 +5,12 @@ import FileUploader from '../components/Upload/FileUploader';
 import AttendanceUploadModal from '../components/AttendanceUploadModal';
 import { formatDate } from '../utils/format';
 
+const TYPE_BADGE = {
+  eso:      { label: 'ESO Riding', style: { background: '#e3f2fd', color: '#1565c0' } },
+  clockin:  { label: 'Clock-In',   style: { background: '#f3e5f5', color: '#6a1b9a' } },
+  dispatch: { label: 'Dispatch',   style: { background: '#fff0e0', color: '#b85c00' } },
+};
+
 export default function ImportData() {
   const { data: history, loading, refetch } = useApi(getImportHistory, []);
   const [showAttendance, setShowAttendance] = useState(false);
@@ -55,8 +61,8 @@ export default function ImportData() {
                 {(history || []).map((h, i) => (
                   <tr key={i} style={styles.row}>
                     <td style={styles.td}>
-                      <span style={{ ...styles.typeBadge, background: h.type === 'eso' ? '#e3f2fd' : '#f3e5f5', color: h.type === 'eso' ? '#1565c0' : '#6a1b9a' }}>
-                        {h.type === 'eso' ? 'ESO Riding' : 'Clock-In'}
+                      <span style={{ ...styles.typeBadge, ...(TYPE_BADGE[h.type] || TYPE_BADGE.clockin).style }}>
+                        {(TYPE_BADGE[h.type] || { label: h.type }).label}
                       </span>
                     </td>
                     <td style={{ ...styles.td, fontFamily: 'monospace', fontSize: 12 }}>{h.import_batch}</td>

@@ -284,6 +284,72 @@ function getAvailablePeriods() {
     .sort((a, b) => `${b.year}-${b.month}`.localeCompare(`${a.year}-${a.month}`));
 }
 
+// ─── Night calls (10pm–6am) ─────────────────────────────────────────────────────
+//
+// A "night call" is an ESO call whose call_time falls in [22:00, 24:00) or
+// [00:00, 06:00). call_time is stored zero-padded "HH:MM" (esoParser pads to 2
+// digits), so the lexicographic comparisons below are correct.
+//
+// Calls are bucketed by their own call_date calendar day — a 2am call shows on
+// that date, not folded into the prior evening. Returns one entry for EVERY day
+// of the month so the calendar grid can render days with no night calls.
+const NIGHT_WINDOW_START = '22:00';  // 10pm — inclusive lower bound
+const NIGHT_WINDOW_END   = '06:00';  // 6am  — exclusive upper bound
+
+function getNightCallsForMonth(year, month) {
+  const { start, end } = monthRange(year, month);
+  const daysInMonth = new Date(year, month, 0).getDate();
+  const ym = start.slice(0, 7);  // "YYYY-MM"
+
+  const rows = db.prepare(`
+    SELECT r.call_date AS callDate, r.call_number AS callNumber,
+           r.call_time AS callTime, m.name AS name
+    FROM riding_points r
+    JOIN members m ON m.id = r.member_id
+    WHERE r.call_date >= ? AND r.call_date <= ?
+      AND r.call_time IS NOT NULL
+      AND (r.call_time >= ? OR r.call_time < ?)
+    ORDER BY r.call_date, r.call_time, m.name
+  `).all(start, end, NIGHT_WINDOW_START, NIGHT_WINDOW_END);
+
+  // Group: date → callNumber → { callTime, riders[] }
+  const byDate = new Map();        // 'YYYY-MM-DD' → Map(callNumber → call)
+  const riderNightCalls = new Map(); // name → Set(callNumber)
+
+  for (const row of rows) {
+    if (!byDate.has(row.callDate)) byDate.set(row.callDate, new Map());
+    const calls = byDate.get(row.callDate);
+    if (!calls.has(row.callNumber)) {
+      calls.set(row.callNumber, { callNumber: row.callNumber, callTime: row.callTime, riders: [] });
+    }
+    const call = calls.get(row.callNumber);
+    if (!call.riders.includes(row.name)) call.riders.push(row.name);
+
+    if (!riderNightCalls.has(row.name)) riderNightCalls.set(row.name, new Set());
+    riderNightCalls.get(row.name).add(row.callNumber);
+  }
+
+  // Build one entry per calendar day
+  const days = [];
+  let totalNightCalls = 0;
+  let totalPersonRides = 0;
+  for (let d = 1; d <= daysInMonth; d++) {
+    const date = `${ym}-${String(d).padStart(2, '0')}`;
+    const callsMap = byDate.get(date);
+    const calls = callsMap ? Array.from(callsMap.values()) : [];
+    totalNightCalls += calls.length;
+    for (const c of calls) totalPersonRides += c.riders.length;
+    days.push({ day: d, date, nightCallCount: calls.length, calls });
+  }
+
+  const topRiders = Array.from(riderNightCalls.entries())
+    .map(([name, set]) => ({ name, nightCalls: set.size }))
+    .sort((a, b) => b.nightCalls - a.nightCalls || a.name.localeCompare(b.name))
+    .slice(0, 5);
+
+  return { year, month, daysInMonth, totalNightCalls, totalPersonRides, days, topRiders };
+}
+
 module.exports = {
   getAllMembers,
   getMemberById,
@@ -294,4 +360,5 @@ module.exports = {
   getLeaderboard,
   getMemberSummary,
   getAvailablePeriods,
+  getNightCallsForMonth,
 };

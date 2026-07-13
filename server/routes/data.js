@@ -48,8 +48,9 @@ router.post('/upload/clockin', upload.single('file'), (req, res) => {
 router.post('/upload/dispatches', upload.single('file'), (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
-    const result = importDispatchData(req.file.buffer, req.file.originalname);
-    res.json({ success: true, ...result });
+    const batchId = `dispatch-${Date.now()}`;
+    const result = importDispatchData(req.file.buffer, req.file.originalname, batchId);
+    res.json({ success: true, batchId, ...result });
   } catch (err) {
     console.error('[dispatches] upload failed:', err);
     res.status(500).json({ error: err.message });
@@ -127,6 +128,17 @@ router.get('/leaderboard', (req, res) => {
   res.json(stats.getLeaderboard(year, month));
 });
 
+// GET /api/data/night-calls?year=2026&month=5
+// Night calls = ESO calls received 10pm–6am, bucketed by calendar day, with the
+// riders who rode each, plus month totals and top-5 night riders.
+router.get('/night-calls', (req, res) => {
+  const year  = parseInt(req.query.year, 10)  || new Date().getFullYear();
+  const month = parseInt(req.query.month, 10) || new Date().getMonth() + 1;
+  if (year < 2000 || year > 2100 || month < 1 || month > 12)
+    return res.status(400).json({ error: 'year (2000-2100) and month (1-12) required' });
+  res.json(stats.getNightCallsForMonth(year, month));
+});
+
 // GET /api/data/members/:id/trend?months=12
 router.get('/members/:id/trend', (req, res) => {
   const months = parseInt(req.query.months) || 12;
@@ -150,7 +162,15 @@ router.get('/import-history', (req, res) => {
     SELECT 'clockin' AS type, import_batch, MIN(activity_date) AS from_date, MAX(activity_date) AS to_date, COUNT(*) AS records
     FROM nonriding_points GROUP BY import_batch ORDER BY rowid DESC LIMIT 20
   `).all();
-  res.json([...riding, ...clockin].sort((a, b) => b.import_batch.localeCompare(a.import_batch)));
+  const dispatch = db.prepare(`
+    SELECT 'dispatch' AS type, import_batch, MIN(dispatch_date) AS from_date, MAX(dispatch_date) AS to_date, COUNT(*) AS records
+    FROM dispatches WHERE import_batch IS NOT NULL GROUP BY import_batch ORDER BY rowid DESC LIMIT 20
+  `).all();
+  // Sort reverse-chronological by the trailing timestamp in the batch id
+  // ({prefix}-{epochMs}) — a plain string sort would order by prefix and float
+  // non-eso/clockin batches (e.g. test-widget*) to the top regardless of date.
+  const batchTs = (row) => Number(String(row.import_batch).split('-').pop()) || 0;
+  res.json([...riding, ...clockin, ...dispatch].sort((a, b) => batchTs(b) - batchTs(a)));
 });
 
 module.exports = router;

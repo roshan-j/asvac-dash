@@ -1,9 +1,10 @@
 import { useState, useMemo, useEffect } from 'react';
 import { useApi } from '../hooks/useApi';
-import { getCorpsTrend, getCorpsMonth, getLeaderboard, getPeriods, getDispatchReport } from '../api/client';
+import { getCorpsTrend, getCorpsMonth, getLeaderboard, getPeriods, getDispatchReport, getNightCalls } from '../api/client';
 import CorpsTrendChart from '../components/Charts/CorpsTrendChart';
 import RidesHistogramChart from '../components/Charts/RidesHistogramChart';
 import CrewPerCallChart from '../components/Charts/CrewPerCallChart';
+import NightCallCalendar from '../components/NightCallCalendar';
 import { formatPeriod } from '../utils/format';
 
 // ─── StatCard with hover tooltip ──────────────────────────────────────────────
@@ -281,6 +282,7 @@ export default function CorpsOverview() {
   const { data: trend,    loading: tl } = useApi(getCorpsTrend, [24], []);
   const { data: monthly, loading: ml } = useApi(getCorpsMonth,  [year, month], [year, month]);
   const { data: board,   loading: bl } = useApi(getLeaderboard, [year, month], [year, month]);
+  const { data: nightCalls, loading: nl } = useApi(getNightCalls, [year, month], [year, month]);
 
   // Sort leaderboard client-side; "attendance" sorts by meeting+training combined
   const sortedBoard = useMemo(() => {
@@ -472,6 +474,9 @@ export default function CorpsOverview() {
         <h2 style={styles.h2}>Riding Contribution — {formatPeriod(year, month)}</h2>
         {bl ? <p style={styles.loading}>Loading…</p> : <RidesHistogramChart data={board} />}
       </div>
+
+      {/* Night-call calendar — ESO calls 10pm–6am for the selected month */}
+      <NightCallCalendar data={nightCalls} loading={nl} year={year} month={month} />
 
       {/* Leaderboard */}
       <div style={styles.section}>

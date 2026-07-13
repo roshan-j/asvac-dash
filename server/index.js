@@ -8,6 +8,7 @@ const dataRoutes       = require('./routes/data');
 const emailRoutes      = require('./routes/email');
 const sheetsRoutes     = require('./routes/sheets');
 const reportsRoutes    = require('./routes/reports');
+const coverageRoutes   = require('./routes/coverage');
 const attendanceRoutes = require('./routes/attendance');
 const { router: authRoutes } = require('./routes/auth');
 const { syncDutyboard }       = require('./services/sheetsService');
@@ -30,6 +31,7 @@ app.use('/api/data',       dataRoutes);
 app.use('/api/email',      emailRoutes);
 app.use('/api/sheets',     sheetsRoutes);
 app.use('/api/reports',    reportsRoutes);
+app.use('/api/coverage',   coverageRoutes);
 app.use('/api/attendance', attendanceRoutes);
 app.use('/api/auth',       authRoutes);
 
