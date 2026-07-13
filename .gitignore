@@ -40,3 +40,6 @@ Thumbs.db
 /client/"$DB"
 .claude/
 MEMORY/
+
+# Member emails pulled from Google Contacts — local PII, do not commit
+server/config/contact_emails.json
